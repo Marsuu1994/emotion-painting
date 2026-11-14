@@ -55,7 +55,9 @@ pythonVersion = "3.13"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--strict-markers", "--strict-config", "-ra"]
+# Live tests call the real services and are run on purpose: `uv run pytest -m live`.
+addopts = ["--strict-markers", "--strict-config", "-ra", "-m", "not live"]
+markers = ["live: calls the real outside services; needs HF_TOKEN and spends inference credit"]
 
 [tool.coverage.run]
 source_pkgs = ["emotion_painting"]

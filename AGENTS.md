@@ -110,6 +110,7 @@ How a design should feel. Check a design against these before proposing it, and 
 - Tests live in `tests/`, one file per module: `tests/test_<module>.py`.
 - **Mock only the outside edge** — the HTTP call to a service this project doesn't run, answered by an `httpx.MockTransport`. Everything on this side of it runs for real, so a test survives a refactor that changes how the code is put together.
 - An async test is marked `anyio` (the whole module: `pytestmark = pytest.mark.anyio`) and runs on asyncio.
+- **A test that calls a real service is marked `live`** and stays out of the default run and CI: it needs the token and spends inference credit. Run it on purpose, after a change to how a service is called.
 - **A bug fix starts with a failing test** at the lowest layer that reproduces it.
 - **A known bug is a strict `xfail`** — `@pytest.mark.xfail(strict=True, reason=…)`, the reason naming where it is tracked; the PR that fixes it removes the mark.
 - **The coverage floor only goes up**: raise `fail_under` in `pyproject.toml` when coverage grows, never lower it to pass.
@@ -144,6 +145,7 @@ uv run ruff check           # Lint (CI); --fix applies the safe fixes
 uv run pyright              # Type check, strict (CI)
 uv run pytest               # Tests
 uv run pytest --cov         # Tests, failing below the coverage floor (CI)
+uv run pytest -m live       # The endpoint against the real services (needs HF_TOKEN; spends inference credit)
 uv add <package>            # Add a dependency (--dev for a tool)
 python3 scripts/check_review_log.py  # Every owner review on a PR has its entry in reviews/ (CI; GITHUB_REPOSITORY and PR_NUMBER locally)
 ```

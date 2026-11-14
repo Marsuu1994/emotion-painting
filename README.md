@@ -25,7 +25,7 @@ The checks CI runs — formatting, lint, types, tests with the coverage floor �
 
 Phase 1 — a local proof of concept — is written end to end: `POST /generate` takes a diary entry, splits it into chunks, scores their emotion on Hugging Face while picking the entry's imagery words by rules, builds a prompt from both, has Pollinations paint it, saves the run under `outputs/` and answers with the image ([flow](./design/flows/generate.md)).
 
-**It has not produced a painting from a real entry yet.** Hugging Face answers the token with `402`, asking for inference credits, so a real call stops at the emotion step with a `502` that says so. Every other step runs for real; the path as a whole is covered by tests that fake only the two services' HTTP answers.
+**It has not produced a painting from real emotion scores yet.** Hugging Face answers the token with `402`, asking for inference credits, so a real call stops at the emotion step with a `502` that says so. With only that one answer faked, the endpoint was run on a Chinese, an English and a mixed entry: every other step ran for real and each call came back with a painting in 5 to 6 seconds. Once the account can call the model, `uv run pytest -m live` runs the whole endpoint against the real services.
 
 Placeholders by design, each an open question in the [overall design](./design/overall-design.md): one emotion label (`开心`), a one-line prompt template, imagery words passed to the prompt untranslated, no fallback image channel.
 
