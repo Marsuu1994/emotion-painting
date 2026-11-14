@@ -10,13 +10,14 @@ The one project-wide design: what the project is for, how it is phased and how t
 | --- | --- | --- |
 | 1 | **Access to emotion inference.** Hugging Face answers the owner's token with `402` — pre-paid credits or a PRO subscription are required for Inference Providers (seen 2026-11-14). How the emotion step gets served is the owner's call. | The step is built against the Hugging Face API as designed; until the account can call it, a request fails at this step and says why. |
 | 2 | **Image fallback channel — pending.** Planned as `FLUX.1-schnell` over the Hugging Face Inference API with the same token. That model is no longer served by `hf-inference`, only through Inference Providers (fal-ai, wavespeed), which bill the account's inference credits and each take a different request shape (seen 2026-11-14). | No fallback: when Pollinations fails, the request fails. |
-| 3 | **Emotion vocabulary.** The final label list (candidates: joy, sadness, anxiety, calm, nostalgia, anger, fatigue). | One label, `开心`. With a single label the dominant emotion is always that label, whatever its score. |
-| 4 | **Aesthetic mapping (Step 3).** A colour dictionary, emotion entropy driving how complex the composition is, arousal driving brushwork and material, a fixed style anchor. | A placeholder template joins the imagery words and the dominant emotion. |
-| 5 | **Language of imagery words.** A Chinese entry yields Chinese words, and the prompt is meant to be English: translate them (and how), or pass them through? | Passed through untranslated. |
-| 6 | **Corpus for imagery scoring.** TF-IDF needs document frequencies, and a single entry has none. | A word's score is how often it occurs times how rare it is in the IDF table bundled with jieba; a word the table doesn't hold — every English word — takes the table's median. Seen on sample entries: in a mixed entry the English words tend to outrank the Chinese ones, and English verbs get through, since only Chinese has a part-of-speech filter. |
-| 7 | **Combining chunks into one emotion.** How per-chunk distributions become the entry's dominant emotion: plain mean, length-weighted mean, or the peak. | Mean weighted by chunk length. |
-| 8 | **One request for all chunks.** The design asks for a single batched inference call; whether `hf-inference` accepts a list of inputs for zero-shot could not be checked (question 1). | One call per chunk, sent concurrently. |
-| 9 | **What `version` means.** A tag on the outputs, or a selector of parameter sets? | A tag: stamped on the snapshot's file names and metadata; the code at hand decides the behaviour. |
+| 3 | **Pollinations without a key.** An anonymous call comes back 768×768 with a `pollinations.ai` watermark in the corner; `nologo` changes nothing (seen 2026-11-14). Whether to register for a key is open. | Called without a key, as designed, and with `private` set so a diary's prompt stays out of the service's public feed. |
+| 4 | **Emotion vocabulary.** The final label list (candidates: joy, sadness, anxiety, calm, nostalgia, anger, fatigue). | One label, `开心`, scored with the model's default hypothesis template. With a single label the dominant emotion is always that label, whatever its score. |
+| 5 | **Aesthetic mapping (Step 3).** A colour dictionary, emotion entropy driving how complex the composition is, arousal driving brushwork and material, a fixed style anchor. | A placeholder template joins the imagery words and the dominant emotion. |
+| 6 | **Language of imagery words.** A Chinese entry yields Chinese words, and the prompt is meant to be English: translate them (and how), or pass them through? | Passed through untranslated. On one sample the Chinese words steered the image only loosely: `公园, 湖边, 柳树` gave water and greenery, and a figure nobody asked for. |
+| 7 | **Corpus for imagery scoring.** TF-IDF needs document frequencies, and a single entry has none. | A word's score is how often it occurs times how rare it is in the IDF table bundled with jieba; a word the table doesn't hold — every English word — takes the table's median. Seen on sample entries: in a mixed entry the English words tend to outrank the Chinese ones, and English verbs get through, since only Chinese has a part-of-speech filter. |
+| 8 | **Combining chunks into one emotion.** How per-chunk distributions become the entry's dominant emotion: plain mean, length-weighted mean, or the peak. | Mean weighted by chunk length. |
+| 9 | **One request for all chunks.** The design asks for a single batched inference call; whether `hf-inference` accepts a list of inputs for zero-shot could not be checked while the token is refused. | One call per chunk, sent concurrently. |
+| 10 | **What `version` means.** A tag on the outputs, or a selector of parameter sets? | A tag: stamped on the snapshot's file names and metadata; the code at hand decides the behaviour. |
 
 ### Later
 
@@ -56,11 +57,11 @@ The ordered chunks go down two tracks that don't block each other.
 
 ### Step 3 — Prompt build
 
-The top imagery words and the dominant emotion are combined into an English prompt for the image model. The mapping from features to aesthetics is open (question 4); Phase 1 uses a placeholder template.
+The top imagery words and the dominant emotion are combined into an English prompt for the image model. The mapping from features to aesthetics is an open question; Phase 1 uses a placeholder template.
 
 ### Step 4 — Image generation
 
-**Pollinations.ai** first: no account and no key — a plain HTTP GET with the URL-encoded prompt returns the image bytes of a Flux model. A fallback channel is pending (question 2).
+**Pollinations.ai** first: no account and no key — a plain HTTP GET with the URL-encoded prompt returns the image bytes of a Flux model. A fallback channel is pending (Open Questions).
 
 ## Phase 1 — Local POC
 
