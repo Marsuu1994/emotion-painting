@@ -17,7 +17,7 @@ The one project-wide design: what the project is for, how it is phased and how t
 | 7 | **Corpus for imagery scoring.** TF-IDF needs document frequencies, and a single entry has none. | A word's score is how often it occurs times how rare it is in the IDF table bundled with jieba; a word the table doesn't hold — every English word — takes the table's median. Seen on sample entries: in a mixed entry the English words tend to outrank the Chinese ones, and English verbs get through, since only Chinese has a part-of-speech filter. |
 | 8 | **Combining chunks into one emotion.** How per-chunk distributions become the entry's dominant emotion: plain mean, length-weighted mean, or the peak. | Mean weighted by chunk length. |
 | 9 | **One request for all chunks.** The design asks for a single batched inference call; whether `hf-inference` accepts a list of inputs for zero-shot could not be checked while the token is refused. | One call per chunk, sent concurrently. |
-| 10 | **What `version` means.** A tag on the outputs, or a selector of parameter sets? | A tag: stamped on the snapshot's file names and metadata; the code at hand decides the behaviour. |
+| 10 | **What `version` means.** A tag on the outputs, or a selector of parameter sets? | A tag: stamped on the snapshot's file names and metadata; the code at hand decides the behaviour. The base version is declared in the code, next to the parameters it describes, and is bumped in the change that alters them. |
 
 ### Later
 
@@ -65,10 +65,11 @@ The top imagery words and the dominant emotion are combined into an English prom
 
 ## Phase 1 — Local POC
 
-- **One synchronous endpoint, `POST /generate`.** It takes the entry's `text` and an optional experiment `version` (the configured base version when absent), runs the four steps in memory and answers with the image.
+- **One synchronous endpoint, `POST /generate`** ([flow](./flows/generate.md)). It takes the entry's `text` — up to 10,000 characters, the Dump feature's own limit — and an optional experiment `version` (the base version when absent), runs the four steps in memory and answers with the image.
 - **Two outputs per call.** The response body is the image itself, so it previews in Swagger UI (`/docs`) or any client. The same call also writes a snapshot to `./outputs/`, named by version and timestamp, for comparing versions side by side:
   - the image: `v{version}_{timestamp}.jpg`
   - its metadata: `v{version}_{timestamp}_meta.json` — the original text, the full emotion distribution, the top imagery words, the final prompt and the channel that produced the image.
+- **Any failure fails the call**: an outside service that errors or times out stops the run, and the answer names the service and what it said. Nothing is retried.
 - **Secrets come from the environment**: the Hugging Face token is read from `HF_TOKEN`.
 - **Dependencies stay deployable to a serverless function** — no model weights and no heavy numeric stack — so Phase 2 can reuse the pipeline as it is.
 

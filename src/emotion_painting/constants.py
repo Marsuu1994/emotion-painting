@@ -45,3 +45,25 @@ IMAGE_MEDIA_TYPE_PREFIX = "image/"
 EXTERNAL_SERVICE_TIMEOUT_SECONDS = 120.0
 # How much of a failed response's body goes into the error message.
 ERROR_BODY_MAX_CHARS = 300
+
+# The endpoint
+# The Dump feature's own limit on an entry.
+ENTRY_MAX_CHARS = 10_000
+# The experiment version stamped on a snapshot when the request names none.
+# Bump it in the change that alters a model, a parameter or the prompt template.
+BASE_VERSION = "0.1"
+# A version goes into file names: letters, digits, dots, dashes and underscores only.
+VERSION_PATTERN = r"^[0-9A-Za-z][0-9A-Za-z._-]*$"
+VERSION_MAX_CHARS = 32
+NOTHING_TO_PAINT_DETAIL = (
+    "The entry has no text left to paint once links and blank lines are removed."
+)
+
+# Snapshots
+SNAPSHOT_NAME_TEMPLATE = "v{version}_{timestamp}"
+# Local time, to the millisecond: two calls never share a name.
+SNAPSHOT_TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S-%f"
+SNAPSHOT_TIMESTAMP_CHARS = len("20261114-104512-123")
+SNAPSHOT_METADATA_SUFFIX = "_meta.json"
+# The extension of an image whose media type the standard library doesn't know.
+SNAPSHOT_DEFAULT_IMAGE_EXTENSION = ".jpg"

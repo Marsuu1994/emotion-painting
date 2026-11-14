@@ -13,6 +13,7 @@ Turns a diary entry's plain text into a painting: rule-based chunking, emotion a
 - Format and lint: Ruff
 - Types: Pyright, strict
 - Tests: pytest, with a coverage floor
+- API: FastAPI, served by uvicorn
 - Chinese word segmentation: jieba
 - HTTP to outside services: httpx (async)
 - Settings: pydantic-settings, from environment variables or `.env`
@@ -22,7 +23,7 @@ Turns a diary entry's plain text into a painting: rule-based chunking, emotion a
 Directory responsibilities only — for concrete file and function names, read the code.
 
 ```text
-src/emotion_painting/    # The package (src layout)
+src/emotion_painting/    # The package (src layout): one module per pipeline step, the pipeline that runs them, the API on top
 tests/                   # pytest tests, one file per module
 typings/                 # Type stubs for dependencies that ship none
 design/                  # Design docs
@@ -30,6 +31,7 @@ design/                  # Design docs
 └── flows/               # Per-feature flow docs
 reviews/                 # The owner's code reviews, one file per PR: each comment, its kind and its outcome — README for people, rules in its AGENTS.md
 scripts/                 # Repo checks run in CI
+outputs/                 # Snapshots of local runs — images and metadata holding diary text (gitignored)
 ```
 
 ## Workflow
@@ -135,6 +137,7 @@ How a design should feel. Check a design against these before proposing it, and 
 
 ```bash
 uv sync                     # Create .venv and install everything from the lockfile
+uv run uvicorn emotion_painting.api:app --reload  # Start the service: http://127.0.0.1:8000/docs
 uv run ruff format          # Format all code
 uv run ruff format --check  # Verify formatting (CI)
 uv run ruff check           # Lint (CI); --fix applies the safe fixes

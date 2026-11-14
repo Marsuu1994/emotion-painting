@@ -1,6 +1,6 @@
 # Flows
 
-One doc per feature. A flow is a step contract: what triggers it, what happens, and the rules that hold.
+One doc per feature — `generate.md` for the `POST /generate` endpoint. A flow is a step contract: what triggers it, what happens, and the rules that hold.
 
 ## Format
 

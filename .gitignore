@@ -33,3 +33,6 @@ Thumbs.db
 
 # logs
 *.log
+
+# Snapshots of local runs: images and metadata that hold diary text
+/outputs/

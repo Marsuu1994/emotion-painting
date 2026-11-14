@@ -1,5 +1,7 @@
 """What the service reads from its environment."""
 
+from pathlib import Path
+
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -11,6 +13,8 @@ class Settings(BaseSettings):
 
     # The Hugging Face access token the emotion step calls the model with: HF_TOKEN.
     hf_token: SecretStr
+    # Where each run's snapshot is written: OUTPUTS_DIR.
+    outputs_dir: Path = Path("outputs")
 
 
 def load_settings() -> Settings:
