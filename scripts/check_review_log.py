@@ -94,7 +94,10 @@ def fetch_all(path: str) -> list[object]:
     separator = "&" if "?" in path else "?"
     page = 1
     while True:
-        batch = cast(list[object], fetch_json(f"{path}{separator}per_page={PAGE_SIZE}&page={page}"))
+        batch = cast(
+            list[object],
+            fetch_json(f"{path}{separator}per_page={PAGE_SIZE}&page={page}"),
+        )
         items.extend(batch)
         if len(batch) < PAGE_SIZE:
             return items
@@ -108,25 +111,41 @@ def find_pull_number(repository: str, owner: str) -> int | None:
         return int(override)
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     if event_path:
-        event = cast(PullRequestEvent, json.loads(Path(event_path).read_text(encoding="utf-8")))
+        event = cast(
+            PullRequestEvent, json.loads(Path(event_path).read_text(encoding="utf-8"))
+        )
         if "pull_request" in event:
             return event["pull_request"]["number"]
     branch = os.environ.get("GITHUB_REF_NAME")
     if not branch:
         return None
     head = urllib.parse.quote(f"{owner}:{branch}", safe="")
-    pulls = cast(list[PullRequest], fetch_json(f"/repos/{repository}/pulls?state=open&head={head}"))
+    pulls = cast(
+        list[PullRequest],
+        fetch_json(f"/repos/{repository}/pulls?state=open&head={head}"),
+    )
     return pulls[0]["number"] if pulls else None
 
 
 def is_by_owner(item: Review | ReviewComment, owner: str) -> bool:
     user = item["user"]
-    return user is not None and user["login"] == owner and SESSION_FOOTER not in (item["body"] or "")
+    return (
+        user is not None
+        and user["login"] == owner
+        and SESSION_FOOTER not in (item["body"] or "")
+    )
 
 
-def collect_expected_entries(repository: str, owner: str, pull_number: int) -> list[ExpectedEntry]:
-    reviews = cast(list[Review], fetch_all(f"/repos/{repository}/pulls/{pull_number}/reviews"))
-    comments = cast(list[ReviewComment], fetch_all(f"/repos/{repository}/pulls/{pull_number}/comments"))
+def collect_expected_entries(
+    repository: str, owner: str, pull_number: int
+) -> list[ExpectedEntry]:
+    reviews = cast(
+        list[Review], fetch_all(f"/repos/{repository}/pulls/{pull_number}/reviews")
+    )
+    comments = cast(
+        list[ReviewComment],
+        fetch_all(f"/repos/{repository}/pulls/{pull_number}/comments"),
+    )
     review_entries = [
         ExpectedEntry(
             anchor=f"pullrequestreview-{review['id']}",
@@ -134,7 +153,9 @@ def collect_expected_entries(repository: str, owner: str, pull_number: int) -> l
             url=review["html_url"],
         )
         for review in reviews
-        if is_by_owner(review, owner) and review["state"] != PENDING_STATE and (review["body"] or "").strip()
+        if is_by_owner(review, owner)
+        and review["state"] != PENDING_STATE
+        and (review["body"] or "").strip()
     ]
     comment_entries = [
         ExpectedEntry(
@@ -190,7 +211,9 @@ def main() -> int:
         )
         return 1
 
-    print(f"{log_path}: all {len(expected)} owner review items logged; {len(open_headings)} still open.")
+    print(
+        f"{log_path}: all {len(expected)} owner review items logged; {len(open_headings)} still open."
+    )
     return 0
 
 
