@@ -1,0 +1,3 @@
+"""jieba ships no types: these stubs cover only what the package uses (AGENTS.md › Types)."""
+
+def setLogLevel(log_level: int) -> None: ...

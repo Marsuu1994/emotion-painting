@@ -13,6 +13,7 @@ Turns a diary entry's plain text into a painting: rule-based chunking, emotion a
 - Format and lint: Ruff
 - Types: Pyright, strict
 - Tests: pytest, with a coverage floor
+- Chinese word segmentation: jieba
 
 ## Project Structure
 
@@ -21,6 +22,7 @@ Directory responsibilities only — for concrete file and function names, read t
 ```text
 src/emotion_painting/    # The package (src layout)
 tests/                   # pytest tests, one file per module
+typings/                 # Type stubs for dependencies that ship none
 design/                  # Design docs
 ├── overall-design.md    # The one project-wide design: open questions first, then goal, phases, pipeline
 └── flows/               # Per-feature flow docs
@@ -97,6 +99,7 @@ How a design should feel. Check a design against these before proposing it, and 
 
 - Every function signature is fully annotated, and nothing is typed `Any`.
 - **Structured data that crosses a function boundary is a frozen `dataclass`**, never a bare `dict` or tuple. Bad: `return {"index": index, "text": text}`. Good: `return Chunk(index=index, text=text)`.
+- **A dependency that ships no types gets a stub in `typings/`** covering only what the code uses, and exactly one module imports it — so its untyped surface ends there. Bad: `# type: ignore` on a `jieba` import in two modules. Good: `typings/jieba/`, imported only by `imagery.py`.
 
 ## Testing
 

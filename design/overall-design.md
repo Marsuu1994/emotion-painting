@@ -13,7 +13,7 @@ The one project-wide design: what the project is for, how it is phased and how t
 | 3 | **Emotion vocabulary.** The final label list (candidates: joy, sadness, anxiety, calm, nostalgia, anger, fatigue). | One label, `开心`. With a single label the dominant emotion is always that label, whatever its score. |
 | 4 | **Aesthetic mapping (Step 3).** A colour dictionary, emotion entropy driving how complex the composition is, arousal driving brushwork and material, a fixed style anchor. | A placeholder template joins the imagery words and the dominant emotion. |
 | 5 | **Language of imagery words.** A Chinese entry yields Chinese words, and the prompt is meant to be English: translate them (and how), or pass them through? | Passed through untranslated. |
-| 6 | **Corpus for imagery scoring.** TF-IDF needs document frequencies, and a single entry has none. | Chinese words are scored against the IDF table bundled with jieba; English words by how often they occur once stopwords are gone. |
+| 6 | **Corpus for imagery scoring.** TF-IDF needs document frequencies, and a single entry has none. | A word's score is how often it occurs times how rare it is in the IDF table bundled with jieba; a word the table doesn't hold — every English word — takes the table's median. Seen on sample entries: in a mixed entry the English words tend to outrank the Chinese ones, and English verbs get through, since only Chinese has a part-of-speech filter. |
 | 7 | **Combining chunks into one emotion.** How per-chunk distributions become the entry's dominant emotion: plain mean, length-weighted mean, or the peak. | Mean weighted by chunk length. |
 | 8 | **One request for all chunks.** The design asks for a single batched inference call; whether `hf-inference` accepts a list of inputs for zero-shot could not be checked (question 1). | One call per chunk, sent concurrently. |
 | 9 | **What `version` means.** A tag on the outputs, or a selector of parameter sets? | A tag: stamped on the snapshot's file names and metadata; the code at hand decides the behaviour. |
@@ -43,7 +43,7 @@ Four steps, the same in every phase.
 ### Step 1 — Chunking and preprocessing (rules, no AI)
 
 - **Light cleaning**: URLs and runs of blank lines go. Punctuation (`!!!`, `...`), letter case and emoji stay exactly as written — they signal arousal.
-- **Two-level split**: first into paragraphs at line breaks; a paragraph over the model's limit (about 350 characters, 512 tokens) is split again at sentence ends (`。！？.!?`) into groups of sentences, so no sentence is cut.
+- **Two-level split**: first into paragraphs at line breaks; a paragraph over the model's limit (about 350 characters, 512 tokens) is split again at sentence ends (`。！？.!?`) into groups of sentences, so no sentence is cut — a single sentence over the limit stays whole.
 - **Physical features**: each chunk keeps its position in the entry and its character count.
 - No embedding here: the downstream model brings its own tokenizer and embedding layer.
 

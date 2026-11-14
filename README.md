@@ -15,7 +15,7 @@ The checks CI runs — formatting, lint, types, tests with the coverage floor �
 
 ## Current State
 
-Phase 1 — a local proof of concept behind one synchronous endpoint — is being built. So far the repository holds the project's design, its working rules and the Python environment (an empty package with its checks wired up); the pipeline isn't written yet.
+Phase 1 — a local proof of concept behind one synchronous endpoint — is being built. The pipeline's rule-based steps are written and tested: an entry is split into chunks, its imagery words are picked out, and a prompt is put together from them. The steps that call outside services — emotion scoring and image generation — and the endpoint itself are not there yet.
 
 ## Docs
 

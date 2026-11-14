@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Turns a diary entry's plain text into a painting."
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "jieba>=0.42.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.32,<0.12.0"]
@@ -27,12 +29,20 @@ select = [
     "T20", # no print
     "RUF", # ruff's own checks
 ]
-# The formatter owns line length; what it can't wrap (a long string, a URL) may stay long.
-ignore = ["E501"]
+ignore = [
+    # The formatter owns line length; what it can't wrap (a long string, a URL) may stay long.
+    "E501",
+    # "Ambiguous" characters: the diaries are Chinese, so full-width punctuation is the data.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # CI checks talk to the workflow through stdout.
 "scripts/*" = ["T20"]
+# Stubs keep the names of the library they describe.
+"typings/*" = ["N"]
 
 [tool.pyright]
 include = ["src", "tests", "scripts"]
