@@ -1,0 +1,32 @@
+name: CI
+
+on: push
+
+jobs:
+  checks:
+    name: Format, lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # uv installs the Python that .python-version pins.
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Check formatting
+        run: uv run ruff format --check
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Type check
+        run: uv run pyright
+
+      - name: Test with the coverage floor
+        run: uv run pytest --cov
