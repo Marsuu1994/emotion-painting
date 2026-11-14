@@ -14,6 +14,8 @@ Turns a diary entry's plain text into a painting: rule-based chunking, emotion a
 - Types: Pyright, strict
 - Tests: pytest, with a coverage floor
 - Chinese word segmentation: jieba
+- HTTP to outside services: httpx (async)
+- Settings: pydantic-settings, from environment variables or `.env`
 
 ## Project Structure
 
@@ -39,7 +41,7 @@ Read the design docs only when the task involves logic, data or new flows; skip 
 - `design/overall-design.md`: what the project is, how it is phased, and what is still open. A task that runs into an open question takes the default the doc gives, or raises it with the owner — it never settles the question on its own.
 - `design/flows/<feature>.md`: flow changes or additions
 
-A fresh checkout runs `uv sync`: the virtual environment and every dependency, from the lockfile.
+A fresh checkout runs `uv sync` — the virtual environment and every dependency, from the lockfile — and copies `.env.example` to `.env`, which holds the one secret, `HF_TOKEN`.
 
 ### Where the rules live
 
@@ -104,7 +106,8 @@ How a design should feel. Check a design against these before proposing it, and 
 ## Testing
 
 - Tests live in `tests/`, one file per module: `tests/test_<module>.py`.
-- **Mock only the outside edge** — the HTTP call to a service this project doesn't run. Everything on this side of it runs for real, so a test survives a refactor that changes how the code is put together.
+- **Mock only the outside edge** — the HTTP call to a service this project doesn't run, answered by an `httpx.MockTransport`. Everything on this side of it runs for real, so a test survives a refactor that changes how the code is put together.
+- An async test is marked `anyio` (the whole module: `pytestmark = pytest.mark.anyio`) and runs on asyncio.
 - **A bug fix starts with a failing test** at the lowest layer that reproduces it.
 - **A known bug is a strict `xfail`** — `@pytest.mark.xfail(strict=True, reason=…)`, the reason naming where it is tracked; the PR that fixes it removes the mark.
 - **The coverage floor only goes up**: raise `fail_under` in `pyproject.toml` when coverage grows, never lower it to pass.

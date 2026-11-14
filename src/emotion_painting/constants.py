@@ -26,3 +26,22 @@ TYPOGRAPHIC_APOSTROPHE = "’"
 PROMPT_TEMPLATE = "A painting of {imagery}, in a {emotion} mood."
 PROMPT_TEMPLATE_WITHOUT_IMAGERY = "A painting in a {emotion} mood."
 IMAGERY_SEPARATOR = ", "
+
+# Step 2, track A — emotion
+HUGGING_FACE = "Hugging Face"
+EMOTION_MODEL_URL = "https://router.huggingface.co/hf-inference/models/MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
+# Asks Hugging Face to hold the request while a cold model loads instead of answering 503.
+HUGGING_FACE_WAIT_FOR_MODEL_HEADER = "x-wait-for-model"
+
+# Step 4 — image
+POLLINATIONS = "Pollinations"
+POLLINATIONS_URL_TEMPLATE = "https://image.pollinations.ai/prompt/{prompt}"
+# private: the image stays out of Pollinations' public feed — the prompt comes from a diary.
+POLLINATIONS_QUERY = {"model": "flux", "private": "true"}
+IMAGE_MEDIA_TYPE_PREFIX = "image/"
+
+# Outside services
+# A cold model or a queued image can take a while; past this the step fails.
+EXTERNAL_SERVICE_TIMEOUT_SECONDS = 120.0
+# How much of a failed response's body goes into the error message.
+ERROR_BODY_MAX_CHARS = 300
