@@ -8,12 +8,12 @@ The one project-wide design: what the project is for, how it is phased and how t
 
 | # | Open | Phase 1 default |
 | --- | --- | --- |
-| 1 | **Access to emotion inference.** Hugging Face answers the owner's token with `402` — pre-paid credits or a PRO subscription are required for Inference Providers (seen 2026-11-14). How the emotion step gets served is the owner's call. | The step is built against the Hugging Face API as designed; until the account can call it, a request fails at this step and says why. |
+| 1 | **Emotion inference in Phase 1.** Hugging Face answers the owner's token with `402`: a free account has no included credit for Inference Providers, so every call needs pre-paid credits or PRO (seen 2026-11-14). Direction (owner, 2026-11-15): Phase 1 runs the same model on the owner's machine, Phase 2 calls the Hugging Face API. Not built yet. | The step calls the Hugging Face API, so a request fails at this step and says why. Its request and response shapes come from Hugging Face's client library, not a live answer; `uv run pytest -m live` is the first check once the account can call it. |
 | 2 | **Image fallback channel — pending.** Planned as `FLUX.1-schnell` over the Hugging Face Inference API with the same token. That model is no longer served by `hf-inference`, only through Inference Providers (fal-ai, wavespeed), which bill the account's inference credits and each take a different request shape (seen 2026-11-14). | No fallback: when Pollinations fails, the request fails. |
 | 3 | **Pollinations without a key.** An anonymous call comes back 768×768 with a `pollinations.ai` watermark in the corner; `nologo` changes nothing (seen 2026-11-14). Whether to register for a key is open. | Called without a key, as designed, and with `private` set so a diary's prompt stays out of the service's public feed. |
 | 4 | **Emotion vocabulary.** The final label list (candidates: joy, sadness, anxiety, calm, nostalgia, anger, fatigue). | One label, `开心`, scored with the model's default hypothesis template. With a single label the dominant emotion is always that label, whatever its score. |
 | 5 | **Aesthetic mapping (Step 3).** A colour dictionary, emotion entropy driving how complex the composition is, arousal driving brushwork and material, a fixed style anchor. | A placeholder template joins the imagery words and the dominant emotion. |
-| 6 | **Language of imagery words.** A Chinese entry yields Chinese words, and the prompt is meant to be English: translate them (and how), or pass them through? | Passed through untranslated. On one sample the Chinese words steered the image only loosely: `公园, 湖边, 柳树` gave water and greenery, and a figure nobody asked for. |
+| 6 | **Language of imagery words.** A Chinese entry yields Chinese words, and the prompt is meant to be English: translate them (and how), or pass them through? | Passed through untranslated. On sample entries the Chinese words did steer the image, loosely: `街角, 咖啡店` gave a street of shops; `公园, 湖边, 柳树` gave water and greenery, and a figure nobody asked for. |
 | 7 | **Corpus for imagery scoring.** TF-IDF needs document frequencies, and a single entry has none. | A word's score is how often it occurs times how rare it is in the IDF table bundled with jieba; a word the table doesn't hold — every English word — takes the table's median. Seen on sample entries: in a mixed entry the English words tend to outrank the Chinese ones, and English verbs get through, since only Chinese has a part-of-speech filter. |
 | 8 | **Combining chunks into one emotion.** How per-chunk distributions become the entry's dominant emotion: plain mean, length-weighted mean, or the peak. | Mean weighted by chunk length. |
 | 9 | **One request for all chunks.** The design asks for a single batched inference call; whether `hf-inference` accepts a list of inputs for zero-shot could not be checked while the token is refused. | One call per chunk, sent concurrently. |
@@ -22,9 +22,10 @@ The one project-wide design: what the project is for, how it is phased and how t
 ### Later
 
 - **Phase 2 data model**: the tables for entries, the processing state and run logs — designed and maintained by the owner.
-- **Phase 2 webhook**: how the Python service knows a call really comes from the database.
-- **Phase 2 retry numbers**: how old a `pending` row is before it is re-triggered (around 2 minutes), how often the sweep runs (around 5 minutes), and the `retry_count` cap.
-- **The 10-second limit against the pipeline's two slow calls** (a cold emotion model, image generation): whether one request can hold both is to be measured on Phase 1's runs.
+- **Phase 2 deployment, unverified**: Services is in beta; whether Vercel fetches a git submodule at build time, and whether a Next.js app at the repository root can sit beside a service in a subdirectory, are not stated in its docs — one trial deployment settles both.
+- **Phase 2 sweep numbers**: the age at which a `pending` or `processing` row counts as stuck (above the function's 300-second limit), and the `retry_count` cap.
+- **Phase 2 cron route**: whether a cron job can target a route in a project using Services, and how that route rejects callers other than the cron — Vercel's docs read so far don't say. Cron Jobs are also marked legacy, to move to Schedules.
+- **Request time**: a Vercel Function on Hobby may run up to 300 seconds. So far, with the emotion call faked, a whole request took 5 to 6 seconds on three sample entries, nearly all of it image generation (2026-11-14).
 
 ## Goal
 
@@ -35,7 +36,7 @@ Turn a diary entry's plain text — written in the app's Dump feature — into a
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 1 — Local POC | One FastAPI service on the developer's machine with one synchronous endpoint. No database, queue, webhook or deployment. | In progress |
-| 2 — Exposed API | Supabase (Postgres + Storage) and a Vercel Python service, triggered asynchronously per entry. | Recorded here, not started |
+| 2 — Exposed API | Supabase (Postgres + Storage), and this service deployed inside the mars-workbench Vercel project, triggered asynchronously per entry. | Recorded here, not started |
 
 ## Pipeline
 
@@ -83,23 +84,29 @@ Recorded so Phase 1 doesn't build against it; nothing here is implemented.
   - Postgres holds each entry's metadata, its processing state (`pending` / `processing` / `completed` / `failed`) and run logs.
   - Storage holds the generated files: 1 GB in total, 50 MB per file, 5 GB of egress a month plus 5 GB of cached egress (a public bucket is served through the CDN).
   - A free project with no API activity for a week is paused; the data stays and it is resumed by hand.
-- **Vercel Python service**: FastAPI as serverless functions, connected to Supabase through environment variables. The Hobby tier limits a request to 10 seconds and can't package heavy models, so all inference goes to stateless external APIs.
+- **The Python service, inside mars-workbench's Vercel project** (decided 2026-11-15). This repository joins mars-workbench as a git submodule and deploys with it as one project, through Vercel Services (beta, on every plan): the Next.js app is one service, this FastAPI app another. The Python service gets no public route — a service is internal unless a rewrite exposes it — and only the Next.js app reaches it, over an internal binding whose URL Vercel injects as an environment variable. It reaches Supabase through environment variables.
+- **Limits on Hobby** (Vercel docs, 2026-11-15): 2 GB and 1 vCPU per function, fixed; up to 300 seconds per request; a Python bundle of up to 500 MB uncompressed, dependencies included; 4 CPU-hours of active CPU and 360 GB-hours of provisioned memory per 30 days, after which the feature waits for the next 30 days rather than billing. These rule out bundling the emotion model and its runtime, so inference here goes to the Hugging Face API.
 
 ### Happy path
 
-1. The front end submits an entry's plain text.
-2. It is written to the entries table as `pending`.
-3. Once the transaction commits, a Supabase Database Webhook (built on `pg_net`) posts to the Python service, asynchronously.
+1. The Dump page submits an entry's plain text to the Next.js app's server action.
+2. The entry is written to the entries table as `pending`, and the action answers at once: the submit never waits on the painting.
+3. After the response, the same function — through Next.js `after()` — calls the Python service over the internal binding and waits for it. That wait is not the user's; it runs within the function's maximum duration (300 seconds on Hobby).
 4. The service runs the pipeline.
 5. The results — the raw paint data as JSON, the image — are uploaded to Storage.
 6. The row is updated to `completed` with the storage paths.
 
+The Python service talks to Supabase itself (decided 2026-11-15): it claims the row, uploads to Storage and writes the outcome. The Next.js app only writes the `pending` row and starts the call.
+
+No database webhook (decided 2026-11-15): the write and the trigger live in the same server action. The Python service doesn't acknowledge early and work on in the background: Vercel documents work after the response (`waitUntil`) for Node.js and the Edge runtime, and points Python at queues instead. `after()` keeps the deferred work in Next.js, where it is documented, and lets the Python service stay one plain synchronous request.
+
 ### Failure handling and logging
 
-A Database Webhook is fire-and-forget: a failed call is not retried. Two safety nets cover that.
+The deferred call runs once and is not retried. Three rules cover that.
 
-- **In the service**: the outermost handler catches any failure after the request arrives — inference, upload — and marks the row `failed` with the reason, so nothing stays `pending` forever.
-- **In the database**: a `pg_cron` job sweeps for rows still `pending` past a threshold (a webhook lost to a network blip, a cold start that timed out) and triggers them again, capped by a `retry_count`.
+- **A run claims its row first**: one conditional update moves it from `pending` to `processing`, and a run that finds the row already claimed stops. So the deferred call and the sweep never paint the same entry twice.
+- **In the service**: any failure after the claim — inference, upload — marks the row `failed` with the reason.
+- **A daily sweep for what is left** (decided 2026-11-15): a cancelled `after()` (the function timed out, or a new deployment replaced it) writes nothing, so its row stays `pending` or `processing`. A Vercel cron job, once a day — the most Hobby allows, at any time within the hour it names — re-runs rows stuck past a threshold, capped by a `retry_count`. A stuck entry may wait up to about a day for its painting.
 - **Logs**: the key steps and the context of each error are kept in the database, to trace cold-start timeouts, external API errors and failed uploads.
 
 ## Future Directions
