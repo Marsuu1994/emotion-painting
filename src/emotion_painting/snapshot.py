@@ -13,6 +13,7 @@ from emotion_painting.constants import (
     SNAPSHOT_TIMESTAMP_CHARS,
     SNAPSHOT_TIMESTAMP_FORMAT,
 )
+from emotion_painting.emotion import EmotionBackend
 from emotion_painting.image_generation import ImageChannel
 from emotion_painting.pipeline import Painting
 from emotion_painting.vocabulary import Emotion
@@ -31,6 +32,7 @@ class SnapshotMetadata(BaseModel):
     version: str
     created_at: datetime
     text: str
+    emotion_backend: EmotionBackend
     chunks: list[ChunkMetadata]
     entry_emotions: dict[Emotion, float]
     dominant_emotion: Emotion
@@ -59,6 +61,7 @@ def save_snapshot(
         version=version,
         created_at=created_at,
         text=painting.text,
+        emotion_backend=painting.emotion_backend,
         chunks=[
             ChunkMetadata(
                 index=emotions.chunk.index,

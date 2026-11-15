@@ -1,9 +1,10 @@
-"""The whole endpoint against the real services. Not part of the default run or CI:
+"""The whole endpoint against the real model and services. Not part of the default run or CI:
 
     uv run pytest -m live
 
-It needs a Hugging Face token that may call Inference Providers (HF_TOKEN, or `.env`),
-and it spends a little of that account's inference credit.
+The local run downloads the emotion model on first use (about 560 MB) and needs the
+`local-model` extra. The Hugging Face run needs HF_TOKEN with inference credit, and spends
+a little of it; without a token it is skipped.
 """
 
 from collections.abc import AsyncGenerator
@@ -15,6 +16,7 @@ import pytest
 from emotion_painting.api import app, get_settings
 from emotion_painting.config import load_settings
 from emotion_painting.constants import BASE_VERSION, IMAGE_MEDIA_TYPE_PREFIX
+from emotion_painting.emotion import EmotionBackend
 from emotion_painting.snapshot import SnapshotMetadata
 from emotion_painting.vocabulary import Emotion
 
@@ -26,10 +28,16 @@ ENTRY = (
 )
 
 
-@pytest.fixture
-async def api(tmp_path: Path) -> AsyncGenerator[httpx.AsyncClient]:
-    """The app with its real settings and real HTTP calls; only the snapshots go somewhere temporary."""
-    settings = load_settings().model_copy(update={"outputs_dir": tmp_path})
+@pytest.fixture(params=list(EmotionBackend))
+async def api(
+    request: pytest.FixtureRequest, tmp_path: Path
+) -> AsyncGenerator[httpx.AsyncClient]:
+    """The app with its real settings, model and HTTP calls; only the backend and the snapshots' directory are set."""
+    settings = load_settings().model_copy(
+        update={"emotion_backend": request.param, "outputs_dir": tmp_path}
+    )
+    if request.param is EmotionBackend.HUGGING_FACE and settings.hf_token is None:
+        pytest.skip("HF_TOKEN is not set")
     app.dependency_overrides[get_settings] = lambda: settings
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://emotion-painting.test"

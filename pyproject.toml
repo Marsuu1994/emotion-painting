@@ -12,6 +12,13 @@ dependencies = [
     "uvicorn>=0.54.0",
 ]
 
+[project.optional-dependencies]
+# The emotion model run on this machine (Phase 1). Left out where inference goes to the Hugging Face API.
+local-model = [
+    "torch>=2.9",
+    "transformers>=4.57",
+]
+
 [build-system]
 requires = ["uv_build>=0.11.32,<0.12.0"]
 build-backend = "uv_build"
@@ -57,7 +64,7 @@ pythonVersion = "3.13"
 testpaths = ["tests"]
 # Live tests call the real services and are run on purpose: `uv run pytest -m live`.
 addopts = ["--strict-markers", "--strict-config", "-ra", "-m", "not live"]
-markers = ["live: calls the real outside services; needs HF_TOKEN and spends inference credit"]
+markers = ["live: runs the real emotion model and calls the real services; see tests/test_live.py"]
 
 [tool.coverage.run]
 source_pkgs = ["emotion_painting"]
@@ -67,6 +74,8 @@ branch = true
 # The floor only goes up (AGENTS.md › Testing).
 fail_under = 95
 show_missing = true
+# Unreachable by construction: the type checker proves every member is handled before it.
+exclude_also = ["assert_never\\("]
 skip_covered = true
 
 [dependency-groups]
@@ -76,3 +85,12 @@ dev = [
     "pytest-cov>=7.1.0",
     "ruff>=0.17.5",
 ]
+
+[[tool.uv.index]]
+# CPU-only PyTorch for Linux: PyPI's Linux wheels pull in CUDA, gigabytes the CPU never uses.
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]

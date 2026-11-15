@@ -7,11 +7,12 @@ Turns a diary entry into a painting: the entry's plain text is chunked by rules,
 The project is managed with [uv](https://docs.astral.sh/uv/), which also installs the Python version it pins.
 
 ```bash
-uv sync                # the virtual environment and every dependency, from the lockfile
-cp .env.example .env   # then fill in HF_TOKEN, a Hugging Face access token
-uv run pytest          # the tests — they call no outside service and need no token
+uv sync --extra local-model   # the virtual environment and every dependency, the emotion model's runtime included
+uv run pytest                 # the tests — they call no outside service and load no model
 uv run uvicorn emotion_painting.api:app --reload   # the service
 ```
+
+The first start downloads the emotion model (about 560 MB, into Hugging Face's cache) and takes a while; later starts take seconds. No token or `.env` is needed; `.env.example` lists the settings there are.
 
 With the service up, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), expand `POST /generate`, and send an entry's `text`: the painting shows in the response, and the same run is saved under `outputs/` — the image, and a `_meta.json` with everything that led to it. From a terminal:
 
@@ -23,9 +24,9 @@ The checks CI runs — formatting, lint, types, tests with the coverage floor �
 
 ## Current State
 
-Phase 1 — a local proof of concept — is written end to end: `POST /generate` takes a diary entry, splits it into chunks, scores their emotion on Hugging Face while picking the entry's imagery words by rules, builds a prompt from both, has Pollinations paint it, saves the run under `outputs/` and answers with the image ([flow](./design/flows/generate.md)).
+Phase 1 — a local proof of concept — runs end to end: `POST /generate` takes a diary entry, splits it into chunks, scores their emotion with a multilingual model running on this machine while picking the entry's imagery words by rules, builds a prompt from both, has Pollinations paint it, saves the run under `outputs/` and answers with the image ([flow](./design/flows/generate.md)). Nothing in it costs money.
 
-**It has not produced a painting from real emotion scores yet.** Hugging Face answers the token with `402`, asking for inference credits, so a real call stops at the emotion step with a `502` that says so. With only that one answer faked, the endpoint was run on a Chinese, an English and a mixed entry: every other step ran for real and each call came back with a painting in 5 to 6 seconds. Once the account can call the model, `uv run pytest -m live` runs the whole endpoint against the real services.
+The emotion model can also run behind the Hugging Face API (`EMOTION_BACKEND=hugging_face`), the way Phase 2 will use it; that path has never run, since the account answers `402` until it has inference credit.
 
 Placeholders by design, each an open question in the [overall design](./design/overall-design.md): one emotion label (`开心`), a one-line prompt template, imagery words passed to the prompt untranslated, no fallback image channel.
 

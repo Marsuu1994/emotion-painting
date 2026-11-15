@@ -3,6 +3,7 @@ from urllib.parse import unquote
 import httpx
 import pytest
 
+from emotion_painting.emotion import EmotionBackend, HuggingFaceEmotionScorer
 from emotion_painting.external_service import ExternalServiceError
 from emotion_painting.image_generation import ImageChannel
 from emotion_painting.pipeline import EmptyEntryError, paint_entry
@@ -23,9 +24,12 @@ ENTRY = "早上去了灯塔。\nThe harbour was quiet, the harbour was mine."
 async def test_an_entry_becomes_a_painting_with_everything_that_led_to_it() -> None:
     services = FakeServices()
     async with services.client() as client:
-        painting = await paint_entry(ENTRY, client, "a-token")
+        painting = await paint_entry(
+            ENTRY, HuggingFaceEmotionScorer(client, "a-token"), client
+        )
 
     assert painting.text == ENTRY
+    assert painting.emotion_backend is EmotionBackend.HUGGING_FACE
     assert [emotions.chunk.text for emotions in painting.chunk_emotions] == ENTRY.split(
         "\n"
     )
@@ -41,7 +45,9 @@ async def test_an_entry_becomes_a_painting_with_everything_that_led_to_it() -> N
 async def test_each_chunk_is_scored_and_the_prompt_is_what_gets_painted() -> None:
     services = FakeServices()
     async with services.client() as client:
-        painting = await paint_entry(ENTRY, client, "a-token")
+        painting = await paint_entry(
+            ENTRY, HuggingFaceEmotionScorer(client, "a-token"), client
+        )
 
     assert len(services.requests_to(HUGGING_FACE_HOST)) == 2
     (image_request,) = services.requests_to(POLLINATIONS_HOST)
@@ -53,7 +59,9 @@ async def test_an_entry_with_nothing_to_paint_calls_no_service() -> None:
     async with services.client() as client:
         with pytest.raises(EmptyEntryError):
             await paint_entry(
-                "  \nhttps://example.com/only-a-link\n", client, "a-token"
+                "  \nhttps://example.com/only-a-link\n",
+                HuggingFaceEmotionScorer(client, "a-token"),
+                client,
             )
 
     assert services.requests == []
@@ -67,6 +75,8 @@ async def test_a_failed_emotion_step_stops_before_the_image() -> None:
     )
     async with services.client() as client:
         with pytest.raises(ExternalServiceError, match="Hugging Face answered 402"):
-            await paint_entry(ENTRY, client, "a-token")
+            await paint_entry(
+                ENTRY, HuggingFaceEmotionScorer(client, "a-token"), client
+            )
 
     assert services.requests_to(POLLINATIONS_HOST) == []

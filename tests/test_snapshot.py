@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from emotion_painting.chunking import Chunk
-from emotion_painting.emotion import ChunkEmotions
+from emotion_painting.emotion import ChunkEmotions, EmotionBackend
 from emotion_painting.image_generation import GeneratedImage, ImageChannel
 from emotion_painting.pipeline import Painting
 from emotion_painting.snapshot import save_snapshot
@@ -15,6 +15,7 @@ CREATED_AT = datetime(2026, 11, 14, 10, 45, 12, 123456, tzinfo=UTC)
 def painting_with(media_type: str = "image/jpeg") -> Painting:
     return Painting(
         text="今天去了灯塔。\nQuiet harbour.",
+        emotion_backend=EmotionBackend.LOCAL,
         chunk_emotions=[
             ChunkEmotions(
                 chunk=Chunk(index=0, text="今天去了灯塔。"), scores={Emotion.HAPPY: 0.9}
@@ -56,6 +57,7 @@ def test_the_metadata_holds_what_led_to_the_image(tmp_path: Path) -> None:
         "version": "0.1",
         "created_at": "2026-11-14T10:45:12.123456Z",
         "text": "今天去了灯塔。\nQuiet harbour.",
+        "emotion_backend": "local",
         "chunks": [
             {
                 "index": 0,

@@ -7,10 +7,10 @@ from emotion_painting.chunking import Chunk
 from emotion_painting.constants import EMOTION_MODEL_URL
 from emotion_painting.emotion import (
     ChunkEmotions,
+    HuggingFaceEmotionScorer,
     combine_chunk_emotions,
     find_dominant_emotion,
     parse_scores,
-    score_chunks,
 )
 from emotion_painting.external_service import ExternalServiceError
 from emotion_painting.vocabulary import Emotion
@@ -38,7 +38,9 @@ async def test_each_chunk_is_scored_in_order() -> None:
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(answer_with_scores)
     ) as client:
-        chunk_emotions = await score_chunks([SUNNY, RAINY], client, "a-token")
+        chunk_emotions = await HuggingFaceEmotionScorer(client, "a-token").score_chunks(
+            [SUNNY, RAINY]
+        )
 
     assert chunk_emotions == [
         ChunkEmotions(chunk=SUNNY, scores={Emotion.HAPPY: 0.9}),
@@ -56,7 +58,7 @@ async def test_the_request_carries_the_token_the_whole_vocabulary_and_multi_labe
         return answer_with_scores(request)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(record)) as client:
-        await score_chunks([SUNNY], client, "a-token")
+        await HuggingFaceEmotionScorer(client, "a-token").score_chunks([SUNNY])
 
     (request,) = requests
     assert request.method == "POST"
@@ -80,7 +82,7 @@ async def test_a_refused_call_fails_the_step_with_what_hugging_face_said() -> No
         with pytest.raises(
             ExternalServiceError, match=r"Hugging Face answered 402.*credits"
         ):
-            await score_chunks([SUNNY], client, "a-token")
+            await HuggingFaceEmotionScorer(client, "a-token").score_chunks([SUNNY])
 
 
 def test_an_answer_in_another_shape_is_an_error() -> None:
@@ -89,7 +91,9 @@ def test_an_answer_in_another_shape_is_an_error() -> None:
 
 
 def test_an_answer_missing_an_emotion_is_an_error() -> None:
-    with pytest.raises(ExternalServiceError, match="left out a score for: 开心"):
+    with pytest.raises(
+        ExternalServiceError, match="The emotion model left out a score for: 开心"
+    ):
         parse_scores(b"[]")
 
 

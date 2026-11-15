@@ -9,9 +9,10 @@ import httpx
 from emotion_painting.chunking import split_into_chunks
 from emotion_painting.emotion import (
     ChunkEmotions,
+    EmotionBackend,
+    EmotionScorer,
     combine_chunk_emotions,
     find_dominant_emotion,
-    score_chunks,
 )
 from emotion_painting.image_generation import GeneratedImage, generate_image
 from emotion_painting.imagery import extract_imagery_words
@@ -24,6 +25,7 @@ class Painting:
     """One run's result: the image, and everything that led to it."""
 
     text: str
+    emotion_backend: EmotionBackend
     chunk_emotions: Sequence[ChunkEmotions]
     entry_emotions: Mapping[Emotion, float]
     dominant_emotion: Emotion
@@ -36,13 +38,15 @@ class EmptyEntryError(Exception):
     """The entry has nothing to paint: no text is left once it is cleaned."""
 
 
-async def paint_entry(text: str, client: httpx.AsyncClient, hf_token: str) -> Painting:
+async def paint_entry(
+    text: str, emotion_scorer: EmotionScorer, client: httpx.AsyncClient
+) -> Painting:
     """The entry's painting: chunk it, read its emotion and imagery side by side, build the prompt, paint."""
     chunks = split_into_chunks(text)
     if not chunks:
         raise EmptyEntryError
     chunk_emotions, imagery_words = await asyncio.gather(
-        score_chunks(chunks, client, hf_token),
+        emotion_scorer.score_chunks(chunks),
         # Rules only, but jieba's first call loads its dictionary: off the event loop.
         asyncio.to_thread(extract_imagery_words, chunks),
     )
@@ -52,6 +56,7 @@ async def paint_entry(text: str, client: httpx.AsyncClient, hf_token: str) -> Pa
     image = await generate_image(prompt, client)
     return Painting(
         text=text,
+        emotion_backend=emotion_scorer.backend,
         chunk_emotions=chunk_emotions,
         entry_emotions=entry_emotions,
         dominant_emotion=dominant_emotion,

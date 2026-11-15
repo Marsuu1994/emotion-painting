@@ -28,8 +28,20 @@ PROMPT_TEMPLATE_WITHOUT_IMAGERY = "A painting in a {emotion} mood."
 IMAGERY_SEPARATOR = ", "
 
 # Step 2, track A — emotion
+EMOTION_MODEL_ID = "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
+# The model's weights as of 2026-11-15, pinned so a local run scores the same every time.
+# The Hugging Face API serves whatever the model's main branch holds; it can't be pinned.
+EMOTION_MODEL_REVISION = "8adb042d524ecd5c26d3e3ba0e3fbcf7e2d0864c"
+ZERO_SHOT_TASK = "zero-shot-classification"
+LOCAL_DEVICE = "cpu"
+LOCAL_MODEL_EXTRA_MISSING = (
+    "The local emotion model needs the local-model extra: run `uv sync --extra local-model`, "
+    "or set EMOTION_BACKEND=hugging_face."
+)
 HUGGING_FACE = "Hugging Face"
-EMOTION_MODEL_URL = "https://router.huggingface.co/hf-inference/models/MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
+EMOTION_MODEL_URL = (
+    f"https://router.huggingface.co/hf-inference/models/{EMOTION_MODEL_ID}"
+)
 # Asks Hugging Face to hold the request while a cold model loads instead of answering 503.
 HUGGING_FACE_WAIT_FOR_MODEL_HEADER = "x-wait-for-model"
 

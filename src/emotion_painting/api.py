@@ -1,11 +1,12 @@
 """The local POC's one endpoint: an entry's text in, its painting out."""
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import lru_cache
 from http import HTTPStatus
-from typing import Annotated
+from typing import Annotated, assert_never
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Response
@@ -19,6 +20,11 @@ from emotion_painting.constants import (
     NOTHING_TO_PAINT_DETAIL,
     VERSION_MAX_CHARS,
     VERSION_PATTERN,
+)
+from emotion_painting.emotion import (
+    EmotionBackend,
+    EmotionScorer,
+    HuggingFaceEmotionScorer,
 )
 from emotion_painting.external_service import ExternalServiceError
 from emotion_painting.pipeline import EmptyEntryError, paint_entry
@@ -51,10 +57,36 @@ async def get_http_client() -> AsyncGenerator[httpx.AsyncClient]:
         yield client
 
 
+@lru_cache
+def get_local_emotion_scorer() -> EmotionScorer:
+    """The model on this machine, loaded once. Imported here: it needs the `local-model` extra."""
+    from emotion_painting.local_emotion_model import load_local_emotion_scorer
+
+    return load_local_emotion_scorer()
+
+
+def get_emotion_scorer(
+    settings: Annotated[Settings, Depends(get_settings)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> EmotionScorer:
+    match settings.emotion_backend:
+        case EmotionBackend.LOCAL:
+            return get_local_emotion_scorer()
+        case EmotionBackend.HUGGING_FACE:
+            return HuggingFaceEmotionScorer(
+                client=client, hf_token=settings.require_hf_token()
+            )
+        case _:
+            assert_never(settings.emotion_backend)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    # A missing token stops the service at startup, not at the first request.
-    get_settings()
+    # Bad settings, a missing extra or a model that won't load stop the service at startup,
+    # not at the first request — which would otherwise also pay for loading the model.
+    settings = get_settings()
+    if settings.emotion_backend is EmotionBackend.LOCAL:
+        await asyncio.to_thread(get_local_emotion_scorer)
     yield
 
 
@@ -77,13 +109,12 @@ app = FastAPI(title="Emotion Painting", lifespan=lifespan)
 async def generate(
     request: GenerateRequest,
     settings: Annotated[Settings, Depends(get_settings)],
+    emotion_scorer: Annotated[EmotionScorer, Depends(get_emotion_scorer)],
     client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
 ) -> Response:
     """Paints a diary entry: chunking, emotion and imagery, a prompt, then the image."""
     try:
-        painting = await paint_entry(
-            request.text, client, settings.hf_token.get_secret_value()
-        )
+        painting = await paint_entry(request.text, emotion_scorer, client)
     except EmptyEntryError as error:
         raise HTTPException(
             HTTPStatus.UNPROCESSABLE_ENTITY, detail=NOTHING_TO_PAINT_DETAIL
