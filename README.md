@@ -2,9 +2,20 @@
 
 Turns a diary entry into a painting: the entry's plain text is chunked by rules, its emotion and imagery are extracted, and a free image service paints the result.
 
+## Getting Started
+
+The project is managed with [uv](https://docs.astral.sh/uv/), which also installs the Python version it pins.
+
+```bash
+uv sync             # the virtual environment and every dependency, from the lockfile
+uv run pytest       # the tests
+```
+
+The checks CI runs — formatting, lint, types, tests with the coverage floor — are listed in [AGENTS.md](./AGENTS.md) › Commands.
+
 ## Current State
 
-Phase 1 — a local proof of concept behind one synchronous endpoint — is being built. So far the repository holds the project's design and its working rules; there is no code yet.
+Phase 1 — a local proof of concept behind one synchronous endpoint — is being built. So far the repository holds the project's design, its working rules and the Python environment (an empty package with its checks wired up); the pipeline isn't written yet.
 
 ## Docs
 

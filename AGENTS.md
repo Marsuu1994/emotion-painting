@@ -9,12 +9,18 @@ Turns a diary entry's plain text into a painting: rule-based chunking, emotion a
 ## Tech Stack
 
 - Language: Python 3.13
+- Project and dependencies: uv (the Python version, the virtual environment, the lockfile)
+- Format and lint: Ruff
+- Types: Pyright, strict
+- Tests: pytest, with a coverage floor
 
 ## Project Structure
 
 Directory responsibilities only — for concrete file and function names, read the code.
 
 ```text
+src/emotion_painting/    # The package (src layout)
+tests/                   # pytest tests, one file per module
 design/                  # Design docs
 ├── overall-design.md    # The one project-wide design: open questions first, then goal, phases, pipeline
 └── flows/               # Per-feature flow docs
@@ -30,6 +36,8 @@ Read the design docs only when the task involves logic, data or new flows; skip 
 
 - `design/overall-design.md`: what the project is, how it is phased, and what is still open. A task that runs into an open question takes the default the doc gives, or raises it with the owner — it never settles the question on its own.
 - `design/flows/<feature>.md`: flow changes or additions
+
+A fresh checkout runs `uv sync`: the virtual environment and every dependency, from the lockfile.
 
 ### Where the rules live
 
@@ -90,6 +98,19 @@ How a design should feel. Check a design against these before proposing it, and 
 - Every function signature is fully annotated, and nothing is typed `Any`.
 - **Structured data that crosses a function boundary is a frozen `dataclass`**, never a bare `dict` or tuple. Bad: `return {"index": index, "text": text}`. Good: `return Chunk(index=index, text=text)`.
 
+## Testing
+
+- Tests live in `tests/`, one file per module: `tests/test_<module>.py`.
+- **Mock only the outside edge** — the HTTP call to a service this project doesn't run. Everything on this side of it runs for real, so a test survives a refactor that changes how the code is put together.
+- **A bug fix starts with a failing test** at the lowest layer that reproduces it.
+- **A known bug is a strict `xfail`** — `@pytest.mark.xfail(strict=True, reason=…)`, the reason naming where it is tracked; the PR that fixes it removes the mark.
+- **The coverage floor only goes up**: raise `fail_under` in `pyproject.toml` when coverage grows, never lower it to pass.
+
+## Tooling
+
+- **Ruff owns formatting** (`ruff format`); don't hand-tune spacing or quotes against it. **Ruff's linter and Pyright own correctness**: Pyright runs in strict mode, and the linter enforces annotated signatures, no `Any`, no `print` (`scripts/` excepted: its checks talk to CI through stdout) and sorted imports. The rule set is in `pyproject.toml`.
+- CI runs the format check, the linter, Pyright and the tests with the coverage floor — run all four before pushing (Version Control).
+
 ## Version Control
 
 - **Local sessions** (on the owner's machine): never commit, push or take another outward-facing VCS action without explicit permission — make and stage the changes, summarize them, and wait for approval.
@@ -101,4 +122,19 @@ How a design should feel. Check a design against these before proposing it, and 
   1. `design/overall-design.md`: remove each open question the change answered, moving the answer into the section it belongs to, and rewrite what the change made wrong.
   2. README Current State: rewrite the sections the change touches.
   3. AGENTS.md, or a README it indexes: only when a rule or a directory's responsibility changed.
+  4. Run `uv run ruff format`, then `uv run ruff check`, `uv run pyright` and `uv run pytest --cov`.
 - **Act on submitted reviews only.** A pending review — comments drafted but not yet submitted — can still change: don't reply to, resolve or push for its comments; at most mention that one is pending.
+
+## Commands
+
+```bash
+uv sync                     # Create .venv and install everything from the lockfile
+uv run ruff format          # Format all code
+uv run ruff format --check  # Verify formatting (CI)
+uv run ruff check           # Lint (CI); --fix applies the safe fixes
+uv run pyright              # Type check, strict (CI)
+uv run pytest               # Tests
+uv run pytest --cov         # Tests, failing below the coverage floor (CI)
+uv add <package>            # Add a dependency (--dev for a tool)
+python3 scripts/check_review_log.py  # Every owner review on a PR has its entry in reviews/ (CI; GITHUB_REPOSITORY and PR_NUMBER locally)
+```
