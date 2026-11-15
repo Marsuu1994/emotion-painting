@@ -22,9 +22,9 @@ The one project-wide design: what the project is for, how it is phased and how t
 ### Later
 
 - **Phase 2 data model**: the tables for entries, the processing state and run logs — designed and maintained by the owner.
-- **Phase 2 webhook**: the secret header the database's webhook carries to the Next.js route, and where it is stored (the trigger definition is readable by any role that can log in to the database).
 - **Phase 2 deployment, unverified**: Services is in beta; whether Vercel fetches a git submodule at build time, and whether a Next.js app at the repository root can sit beside a service in a subdirectory, are not stated in its docs — one trial deployment settles both.
-- **Phase 2 retry numbers**: how old a `pending` row is before it is re-triggered (around 2 minutes), how often the sweep runs (around 5 minutes), and the `retry_count` cap.
+- **Phase 2 retry**: what re-triggers a row left `pending` — an `after()` cancelled by a timeout or a deploy, a call that never landed. Nothing in the database can reach the internal service, and Vercel's cron runs at most once a day on Hobby (±59 minutes). Candidates: the Next.js app re-triggers stale rows when the Dump page loads; a daily cron; a manual retry. Also open: the age that counts as stale, and the `retry_count` cap.
+- **Who writes the result**: the Python service writes the row and Storage itself (it needs Supabase credentials), or answers the Next.js app, which writes them (Python stays stateless).
 - **Request time**: a Vercel Function on Hobby may run up to 300 seconds. So far, with the emotion call faked, a whole request took 5 to 6 seconds on three sample entries, nearly all of it image generation (2026-11-14).
 
 ## Goal
@@ -89,19 +89,21 @@ Recorded so Phase 1 doesn't build against it; nothing here is implemented.
 
 ### Happy path
 
-1. The front end submits an entry's plain text.
-2. It is written to the entries table as `pending`.
-3. Once the transaction commits, a Supabase Database Webhook (built on `pg_net`) posts, asynchronously and with a secret header, to a route of the Next.js app, which checks the secret and calls the Python service over the internal binding.
+1. The Dump page submits an entry's plain text to the Next.js app's server action.
+2. The entry is written to the entries table as `pending`, and the action answers at once: the submit never waits on the painting.
+3. After the response, the same function — through Next.js `after()` — calls the Python service over the internal binding and waits for it. That wait is not the user's; it runs within the function's maximum duration (300 seconds on Hobby).
 4. The service runs the pipeline.
 5. The results — the raw paint data as JSON, the image — are uploaded to Storage.
 6. The row is updated to `completed` with the storage paths.
 
+No database webhook (decided 2026-11-15): the write and the trigger live in the same server action. The Python service doesn't acknowledge early and work on in the background: Vercel documents work after the response (`waitUntil`) for Node.js and the Edge runtime, and points Python at queues instead. `after()` keeps the deferred work in Next.js, where it is documented, and lets the Python service stay one plain synchronous request.
+
 ### Failure handling and logging
 
-A Database Webhook is fire-and-forget: a failed call is not retried. Two safety nets cover that.
+The deferred call runs once and is not retried. Two safety nets cover that.
 
-- **In the service**: the outermost handler catches any failure after the request arrives — inference, upload — and marks the row `failed` with the reason, so nothing stays `pending` forever.
-- **In the database**: a `pg_cron` job sweeps for rows still `pending` past a threshold (a webhook lost to a network blip, a cold start that timed out) and triggers them again, capped by a `retry_count`.
+- **In the pipeline's caller**: any failure after the call starts — inference, upload, the service answering an error — marks the row `failed` with the reason.
+- **For rows left `pending`**: a cancelled `after()` (the function timed out, or a new deployment replaced it) writes nothing, so the row stays `pending`. Something must re-trigger stale rows, capped by a `retry_count`; what, is open (Open Questions › Later).
 - **Logs**: the key steps and the context of each error are kept in the database, to trace cold-start timeouts, external API errors and failed uploads.
 
 ## Future Directions
