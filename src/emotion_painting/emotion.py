@@ -1,8 +1,14 @@
-"""Step 2, track A — each chunk's emotion distribution, from a zero-shot model on Hugging Face."""
+"""Step 2, track A — each chunk's emotion distribution, from a zero-shot model.
+
+The model runs on this machine (`local_emotion_model.py`) or behind the Hugging Face API
+(here); both score the same labels and answer the same shape.
+"""
 
 import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
+from typing import Protocol
 
 import httpx
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -28,6 +34,24 @@ class ChunkEmotions:
     scores: Mapping[Emotion, float]
 
 
+class EmotionBackend(StrEnum):
+    """Where the emotion model runs."""
+
+    # On this machine: free, and the same pinned weights every run (Phase 1).
+    LOCAL = "local"
+    # Behind the Hugging Face API: needs HF_TOKEN and inference credit (Phase 2).
+    HUGGING_FACE = "hugging_face"
+
+
+class EmotionScorer(Protocol):
+    """Wherever the model runs: every chunk's distribution, in the chunks' order."""
+
+    @property
+    def backend(self) -> EmotionBackend: ...
+
+    async def score_chunks(self, chunks: Sequence[Chunk]) -> list[ChunkEmotions]: ...
+
+
 class LabelScore(BaseModel):
     """One item of the model's answer."""
 
@@ -38,54 +62,60 @@ class LabelScore(BaseModel):
 LABEL_SCORES = TypeAdapter(list[LabelScore])
 
 
-async def score_chunks(
-    chunks: Sequence[Chunk], client: httpx.AsyncClient, hf_token: str
-) -> list[ChunkEmotions]:
-    """Every chunk's emotion distribution, in the chunks' order: one call per chunk, sent concurrently."""
-    return list(
-        await asyncio.gather(
-            *(score_chunk(chunk, client, hf_token) for chunk in chunks)
+@dataclass(frozen=True)
+class HuggingFaceEmotionScorer:
+    """The model behind the Hugging Face API: one call per chunk, sent concurrently."""
+
+    client: httpx.AsyncClient
+    hf_token: str
+    backend: EmotionBackend = EmotionBackend.HUGGING_FACE
+
+    async def score_chunks(self, chunks: Sequence[Chunk]) -> list[ChunkEmotions]:
+        return list(
+            await asyncio.gather(*(self.score_chunk(chunk) for chunk in chunks))
         )
-    )
 
-
-async def score_chunk(
-    chunk: Chunk, client: httpx.AsyncClient, hf_token: str
-) -> ChunkEmotions:
-    request = client.build_request(
-        "POST",
-        EMOTION_MODEL_URL,
-        headers={
-            "Authorization": f"Bearer {hf_token}",
-            HUGGING_FACE_WAIT_FOR_MODEL_HEADER: "true",
-        },
-        json={
-            "inputs": chunk.text,
-            "parameters": {
-                "candidate_labels": [emotion.value for emotion in Emotion],
-                "multi_label": True,
+    async def score_chunk(self, chunk: Chunk) -> ChunkEmotions:
+        request = self.client.build_request(
+            "POST",
+            EMOTION_MODEL_URL,
+            headers={
+                "Authorization": f"Bearer {self.hf_token}",
+                HUGGING_FACE_WAIT_FOR_MODEL_HEADER: "true",
             },
-        },
-    )
-    response = await send_to_external_service(client, HUGGING_FACE, request)
-    return ChunkEmotions(chunk=chunk, scores=parse_scores(response.content))
+            json={
+                "inputs": chunk.text,
+                "parameters": {
+                    "candidate_labels": [emotion.value for emotion in Emotion],
+                    "multi_label": True,
+                },
+            },
+        )
+        response = await send_to_external_service(self.client, HUGGING_FACE, request)
+        return ChunkEmotions(chunk=chunk, scores=parse_scores(response.content))
 
 
 def parse_scores(response_body: bytes) -> dict[Emotion, float]:
-    """The model's answer — a list of label and score — as a score for every emotion."""
+    """The API's answer — a list of label and score — as a score for every emotion."""
     try:
         label_scores = LABEL_SCORES.validate_json(response_body)
     except ValidationError as error:
         raise ExternalServiceError(
             f"{HUGGING_FACE} answered in an unexpected shape: {error}"
         ) from error
-    scores = {label_score.label: label_score.score for label_score in label_scores}
+    return scores_for_every_emotion(
+        {label_score.label: label_score.score for label_score in label_scores}
+    )
+
+
+def scores_for_every_emotion(scores: Mapping[Emotion, float]) -> dict[Emotion, float]:
+    """The scores, refused when one emotion of the vocabulary has none."""
     missing_emotions = set(Emotion) - set(scores)
     if missing_emotions:
         raise ExternalServiceError(
-            f"{HUGGING_FACE} left out a score for: {', '.join(sorted(missing_emotions))}"
+            f"The emotion model left out a score for: {', '.join(sorted(missing_emotions))}"
         )
-    return scores
+    return dict(scores)
 
 
 def combine_chunk_emotions(

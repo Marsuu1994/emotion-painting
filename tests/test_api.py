@@ -1,11 +1,13 @@
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
 from pydantic import SecretStr, ValidationError
 
+from emotion_painting import api as api_module
 from emotion_painting.api import app, get_http_client, get_settings, lifespan
 from emotion_painting.config import Settings
 from emotion_painting.constants import (
@@ -13,16 +15,59 @@ from emotion_painting.constants import (
     ENTRY_MAX_CHARS,
     EXTERNAL_SERVICE_TIMEOUT_SECONDS,
 )
-from fake_services import PAINTING_BYTES, FakeServices
+from emotion_painting.emotion import EmotionBackend, EmotionScorer
+from emotion_painting.local_emotion_model import LocalEmotionScorer
+from emotion_painting.vocabulary import Emotion
+from fake_services import HAPPY_SCORE, HUGGING_FACE_HOST, PAINTING_BYTES, FakeServices
+
+if TYPE_CHECKING:
+    from transformers import ZeroShotResult
 
 pytestmark = pytest.mark.anyio
 
 ENTRY = "早上去了灯塔。\nThe harbour was quiet."
 
 
+LOCAL_SCORE = 0.6
+
+
+def local_scorer_answering(score: float) -> LocalEmotionScorer:
+    """The real local scorer, with transformers' pipeline — its outside edge — answering `score` for every label."""
+
+    def classify(
+        sequences: list[str], *, candidate_labels: list[str], multi_label: bool
+    ) -> "list[ZeroShotResult]":
+        return [
+            {
+                "sequence": text,
+                "labels": candidate_labels,
+                "scores": [score] * len(candidate_labels),
+            }
+            for text in sequences
+        ]
+
+    return LocalEmotionScorer(classifier=classify)
+
+
 @pytest.fixture
 def services() -> FakeServices:
     return FakeServices()
+
+
+@pytest.fixture(params=list(EmotionBackend))
+def emotion_backend(request: pytest.FixtureRequest) -> EmotionBackend:
+    """Every endpoint test runs once with the model on this machine and once behind the Hugging Face API."""
+    return request.param
+
+
+@pytest.fixture
+def fake_local_model(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    monkeypatch.setattr(
+        api_module,
+        "get_local_emotion_scorer",
+        lambda: local_scorer_answering(LOCAL_SCORE),
+    )
+    yield
 
 
 @pytest.fixture
@@ -32,16 +77,21 @@ def outputs_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 async def api(
-    services: FakeServices, outputs_dir: Path
+    services: FakeServices,
+    outputs_dir: Path,
+    emotion_backend: EmotionBackend,
+    fake_local_model: None,
 ) -> AsyncGenerator[httpx.AsyncClient]:
-    """The app, called in process, with its two outside edges replaced: the settings and the HTTP transport."""
+    """The app, called in process, with its outside edges replaced: the settings, the HTTP transport and the model."""
 
     async def fake_http_client() -> AsyncGenerator[httpx.AsyncClient]:
         async with services.client() as client:
             yield client
 
     app.dependency_overrides[get_settings] = lambda: Settings(
-        hf_token=SecretStr("a-token"), outputs_dir=outputs_dir
+        emotion_backend=emotion_backend,
+        hf_token=SecretStr("a-token"),
+        outputs_dir=outputs_dir,
     )
     app.dependency_overrides[get_http_client] = fake_http_client
     async with httpx.AsyncClient(
@@ -79,6 +129,29 @@ async def test_a_call_leaves_a_snapshot_under_the_base_version(
     assert metadata["version"] == BASE_VERSION
     assert metadata["text"] == ENTRY
     assert metadata["image_file"] == image_name
+
+
+async def test_the_snapshot_records_where_the_emotion_model_ran(
+    api: httpx.AsyncClient,
+    services: FakeServices,
+    outputs_dir: Path,
+    emotion_backend: EmotionBackend,
+) -> None:
+    await api.post("/generate", json={"text": ENTRY})
+
+    (metadata_name,) = [
+        name for name in snapshot_names(outputs_dir) if name.endswith(".json")
+    ]
+    metadata = json.loads((outputs_dir / metadata_name).read_text("utf-8"))
+    assert metadata["emotion_backend"] == emotion_backend.value
+    expected_score = (
+        LOCAL_SCORE if emotion_backend is EmotionBackend.LOCAL else HAPPY_SCORE
+    )
+    assert metadata["entry_emotions"] == {
+        Emotion.HAPPY.value: pytest.approx(expected_score)
+    }
+    called_hugging_face = bool(services.requests_to(HUGGING_FACE_HOST))
+    assert called_hugging_face is (emotion_backend is EmotionBackend.HUGGING_FACE)
 
 
 async def test_the_request_can_name_its_version(
@@ -127,6 +200,7 @@ async def test_an_entry_with_nothing_to_paint_is_refused(
     assert snapshot_names(outputs_dir) == []
 
 
+@pytest.mark.parametrize("emotion_backend", [EmotionBackend.HUGGING_FACE])
 async def test_a_failing_service_is_a_bad_gateway_that_says_why(
     api: httpx.AsyncClient, services: FakeServices, outputs_dir: Path
 ) -> None:
@@ -156,24 +230,57 @@ async def test_outside_calls_get_the_long_timeout_and_follow_redirects() -> None
 
 
 @pytest.fixture
-def no_settings_in_reach(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Neither the developer's `.env` nor an earlier test's cached settings."""
+def no_settings_in_reach(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Neither the developer's `.env` and variables nor an earlier test's cached settings."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("EMOTION_BACKEND", raising=False)
+    get_settings.cache_clear()
+    yield
     get_settings.cache_clear()
 
 
 @pytest.mark.usefixtures("no_settings_in_reach")
-async def test_the_service_starts_with_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HF_TOKEN", "a-token")
+async def test_the_local_model_is_loaded_at_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loads: list[EmotionScorer] = []
+
+    def load_once() -> EmotionScorer:
+        scorer = local_scorer_answering(HAPPY_SCORE)
+        loads.append(scorer)
+        return scorer
+
+    monkeypatch.setattr(api_module, "get_local_emotion_scorer", load_once)
 
     async with lifespan(app):
-        assert get_settings().hf_token.get_secret_value() == "a-token"
-    get_settings.cache_clear()
+        assert len(loads) == 1
 
 
 @pytest.mark.usefixtures("no_settings_in_reach")
-async def test_the_service_refuses_to_start_without_a_token() -> None:
-    with pytest.raises(ValidationError, match="hf_token"):
+async def test_the_hugging_face_backend_starts_with_a_token_and_loads_no_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMOTION_BACKEND", "hugging_face")
+    monkeypatch.setenv("HF_TOKEN", "a-token")
+    monkeypatch.setattr(api_module, "get_local_emotion_scorer", fail_if_called)
+
+    async with lifespan(app):
+        assert get_settings().require_hf_token() == "a-token"
+
+
+@pytest.mark.usefixtures("no_settings_in_reach")
+async def test_the_hugging_face_backend_refuses_to_start_without_a_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMOTION_BACKEND", "hugging_face")
+
+    with pytest.raises(ValidationError, match="needs HF_TOKEN"):
         async with lifespan(app):
             pass
+
+
+def fail_if_called() -> EmotionScorer:
+    raise AssertionError("The local model was loaded")

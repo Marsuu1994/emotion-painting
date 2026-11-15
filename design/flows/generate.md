@@ -17,7 +17,7 @@ A client — Swagger UI at `/docs`, or any HTTP client — posts JSON to `POST /
 1. Validate the request: `text` is 1 to 10,000 characters; `version`, when given, is at most 32 letters, digits, dots, dashes and underscores. A request that fails is answered `422` and nothing else happens.
 2. Split the text into chunks: links and blank lines go, each paragraph is a chunk, and a paragraph over 350 characters becomes groups of whole sentences. An entry with no chunks left is answered `422`.
 3. Read the chunks two ways at once:
-   - **Emotion**: every chunk is scored against the whole emotion vocabulary by the zero-shot model on Hugging Face, each label on its own.
+   - **Emotion**: every chunk is scored against the whole emotion vocabulary by the zero-shot model, each label on its own — on this machine, all chunks in one batch, or behind the Hugging Face API, one call per chunk (`EMOTION_BACKEND`).
    - **Imagery**: the entry's top 5 imagery words are picked by rules — Chinese nouns, place words and time words; English words that aren't stopwords.
 4. Combine the chunks' emotion scores into the entry's distribution — the mean weighted by chunk length — and take its highest score as the dominant emotion.
 5. Build the prompt from the imagery words and the dominant emotion.
@@ -33,5 +33,7 @@ A client — Swagger UI at `/docs`, or any HTTP client — posts JSON to `POST /
 - **`version` is a tag, not a switch**: it names the snapshot and nothing else. Without one, the run is filed under the base version the code declares.
 - **The metadata holds what led to the image**: the version and time, the original text, every chunk with its emotion scores, the entry's distribution and dominant emotion, the imagery words, the final prompt, the channel that painted it and the image's file name.
 - **Snapshot names carry local time to the millisecond**, so two runs never share one. An image that isn't a JPEG keeps its own extension.
-- **The Hugging Face token never leaves the service**: it is read from `HF_TOKEN` at startup — the service refuses to start without it — and appears in no response, snapshot or log.
+- **The service checks its setup at startup, not at the first request**: the local model is loaded then, and the Hugging Face backend refuses to start without `HF_TOKEN`.
+- **The Hugging Face token never leaves the service**: it appears in no response, snapshot or log.
+- **The snapshot names where the emotion model ran**, since the two can differ slightly.
 - **The prompt is sent to Pollinations marked private**, so it stays out of that service's public feed.
