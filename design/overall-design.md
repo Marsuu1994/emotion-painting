@@ -17,6 +17,7 @@ The one project-wide design: what the project is for, how it is phased and how t
 | 7 | **Combining chunks into one emotion.** How per-chunk distributions become the entry's dominant emotion: plain mean, length-weighted mean, or the peak. | Mean weighted by chunk length. |
 | 8 | **One request for all chunks.** The design asks for a single batched inference call; whether `hf-inference` accepts a list of inputs for translation and text classification could not be checked (question 1). | One call per input, sent concurrently. |
 | 9 | **What `version` means.** A tag on the outputs, or a selector of parameter sets? | A tag: stamped on the snapshot's file names and metadata; the code at hand decides the behaviour. |
+| 10 | **Translation caps over the provider.** The caps against looping (no repeated 3-word sequence, an output length bound) are generation parameters; whether `hf-inference` accepts them for translation could not be checked (question 1). | Sent with every request; a unit whose translation is far longer than its source is flagged in the output. |
 
 ### Later
 
@@ -52,7 +53,7 @@ Four steps, the same in every phase.
 The ordered chunks go down two tracks that don't block each other.
 
 - **Track A — emotion distribution** (decides colour, light and mood). Two fixed models over the Hugging Face Inference API — stateless HTTP, no weights on the machine, waiting out a cold model. How they were chosen, and what they cost, is in `spikes/measurement-layer.md`.
-  - **Translation**: `Helsinki-NLP/opus-mt-zh-en` turns each chunk into English, sentence by sentence — translated whole, a long chunk loses its last sentences.
+  - **Translation**: `Helsinki-NLP/opus-mt-zh-en` turns each chunk into English in units of about 40 characters, cut by rules at punctuation — the comma included, since entries rarely use full stops — with its output capped against repetition. Translated whole, a long chunk loses its last sentences; translated a clause at a time, short pieces loop or invent text.
   - **Emotion**: `SamLowe/roberta-base-go_emotions` scores the English chunk on the 28 GoEmotions labels (27 emotions and `neutral`), each independently (multi-label). The scores are normalised into a distribution, and each chunk keeps all of it, not just the top label.
   - **Valence and arousal**: computed, not measured — the distribution-weighted mean of a fixed (V, A) point per label (question 3).
   - Every output records both model ids and revisions and the coordinate table's version, so a change of model or table shows in the data.

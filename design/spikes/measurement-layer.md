@@ -63,7 +63,13 @@ So the measurement layer has to deliver, per segment and in order, **a full dist
 ## 5. Decision — Method 1
 
 1. **Segment** (rules): at newlines; a long block without one is packed sentence by sentence into ~200–300 characters; a very short tail joins its neighbour.
-2. **Translate** each segment **sentence by sentence** with `Helsinki-NLP/opus-mt-zh-en` (beam search, 6 beams, from the model's own generation config) and join the sentences. Sentence by sentence because the probe (§7) showed whole-segment translation silently dropping the end of a long segment.
+2. **Translate** each segment in **units of up to about 40 characters** with `Helsinki-NLP/opus-mt-zh-en` (beam search, 6 beams, from the model's own generation config), and join the results. The units come from rules, not a model — the owner's writing runs on commas rather than full stops, so the comma serves as the clause boundary:
+   - cut first at hard boundaries: newlines and `。！？!?…；`;
+   - a piece still over the limit is cut into clauses at soft boundaries (`，、：—`), and the clauses are packed back together up to the limit; English words are never cut;
+   - generation is capped: no repeated 3-word sequence, and an output length bound by the input's length;
+   - a unit of 10 or more characters whose English word count per Chinese character falls below about 0.3 has dropped content, and is cut finer and translated again; one above about 1.2 has looped past the cap, and is flagged in the output.
+
+   Why units of this size, and not whole segments or single clauses: §7.
 3. **Classify** the English segment with `SamLowe/roberta-base-go_emotions`: 28 independent sigmoid scores (27 emotions and `neutral`, multi-label).
 4. **Normalise** the 28 scores to sum to 1 — the distribution the charts and the accents use. The raw scores are kept too.
 5. **V/A** = the distribution-weighted mean of a fixed coordinate table: each label has one (V, A) point in [−1, 1], `neutral` at the origin.
@@ -99,8 +105,8 @@ Provisional table v0 (V, A):
 ### Translation
 
 - **Translate-test is the standard cross-lingual route**, and translation drift is accepted for the POC.
-- **What it breaks** (all seen in the probe): a person's name translated as a common noun; application slang (套瓷, writing to a prospective supervisor) translated as an unrelated explicit word; English words inside Chinese sentences pass through; a long segment's last sentences dropped without warning.
-- **Granularity changes the measurement.** The same segment translated whole scored V +0.15 with `admiration` on top; translated sentence by sentence it scored V −0.28 with `sadness` on top (§7). Sentence by sentence keeps every sentence, at the cost of more calls (one per sentence, unless the provider takes a batch).
+- **What it breaks** (all seen in the probe): a person's name translated as a common noun; application slang (套瓷, writing to a prospective supervisor) translated as an unrelated word; a typo (幸苦 for 辛苦) turning "you've worked so hard" into "you're so lucky"; English words inside Chinese sentences pass through; a long input's last sentences dropped without warning; a short or repetitive input looping or inventing text.
+- **Granularity changes the measurement, and no unit size is safe both ways.** Long units lose content silently; short ones loop or invent. Across six unit sizes the same segment's V ranged from −0.30 to +0.20 (§7). The generation caps make ~40-character units workable, at two costs: they also suppress repetition the writer meant (痛苦痛苦痛苦 becomes "pain and suffering"), and whether hf-inference accepts them as request parameters is not verified. Units also mean more calls: one per unit, unless the provider takes a batch.
 - **The way out is a model swap**: `Horizon-Labs/multilingual-emotions-*` reads Chinese with the same 28 labels, so the table and everything downstream stay. It needs an Inference Endpoint.
 
 ### The label set comes from English Reddit
@@ -129,17 +135,33 @@ One entry from the diary → painting handoff (about 1,260 characters, no newlin
 | Segment | Content (paraphrase) | Chars | Translated | Top 3 (normalised) | V | A |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | low for days, outside pressure about money and plans | 180 | whole | curiosity .32, sadness .26, disappointment .14 | −0.20 | 0.06 |
-| | | | by sentence | curiosity .29, sadness .26, disappointment .17 | −0.23 | 0.04 |
+| | | | at `。！？` | curiosity .29, sadness .26, disappointment .17 | −0.23 | 0.04 |
 | 2 | overwhelmed by tasks, comforting self, inner critic, anger | 219 | whole | admiration .37, annoyance .19, anger .10 | +0.15 | 0.32 |
-| | | | by sentence | sadness .38, disappointment .15, curiosity .09 | −0.28 | −0.08 |
+| | | | at `。！？` | sadness .38, disappointment .15, curiosity .09 | −0.28 | −0.08 |
 | 3 | back to the present, call mum | 56 | whole | approval .70, neutral .15, admiration .04 | +0.41 | 0.11 |
 
 What it shows:
 
 - **The arc comes through**: negative → negative → positive, ending on the entry's landing.
-- **Segment 2 is the problem segment.** It holds four turns — overwhelm, self-comfort, the inner critic, anger — because the entry has no newlines to split them. Translated whole, the anger at its end was dropped and "you're the best" dominated (`admiration`); translated by sentence, `sadness` dominated. With the owner's newline habit this block would likely be three or four segments.
+- **Segment 2 is the problem segment.** It holds four turns — overwhelm, self-comfort, the inner critic, anger — because the entry has no newlines to split them. Translated whole, the anger at its end was dropped and "you're the best" dominated (`admiration`); cut at `。！？`, `sadness` dominated. With the owner's newline habit this block would likely be three or four segments.
 - **Questions read as `curiosity`.** Rhetorical self-questions ("why is it like this?") score as curiosity, which v0 places at positive valence — an example of the label set misreading a diary.
 - **Segment 3 is a short tail** (56 characters); the packing rule should join it to its neighbour.
+
+### Translation unit size
+
+Segment 2 again, with only the translation unit changed (packing cuts at soft boundaries; the classifier still reads the whole translated segment):
+
+| Unit | Units | V | What went wrong in translation |
+| --- | --- | --- | --- |
+| whole segment | 1 | +0.15 | the anger at the end gone |
+| cut at `。！？` | 3 | −0.28 | the self-comfort inside a 148-character sentence gone |
+| packed to ≤ 80 characters | 3 | −0.06 | an 80-character unit came back as one short sentence |
+| packed to ≤ 40 characters | 7 | +0.20 | one unit came back as "no, no, no…" 46 times |
+| packed to ≤ 20 characters | 13 | −0.11 | — |
+| one clause per unit | 24 | −0.30 | 痛苦痛苦痛苦 looped as "the pain" without end; "omg" became "I don't know what you're talking about"; subjects invented |
+
+- **Two failure modes, at opposite ends**: long inputs drop content, short or repetitive ones loop or invent. The ratio of English words to Chinese characters separates them: about 0.4–0.8 when the translation is whole, 0.19 for the dropped unit, 1.15–9.7 for the loops.
+- **The generation caps remove the loops.** With no repeated 3-word sequence and the output length bound, the 46 "no"s became "No, the prosecutor's always in judge. Fuck, leave me alone! It's more painful, painful and painful", and the endless "the pain" became "pain and suffering".
 
 ## 8. From the Numbers to the Painting
 
