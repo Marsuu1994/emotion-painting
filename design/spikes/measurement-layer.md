@@ -63,11 +63,11 @@ So the measurement layer has to deliver, per segment and in order, **a full dist
 ## 5. Decision — Method 1
 
 1. **Segment** (rules): at newlines; a long block without one is packed sentence by sentence into ~200–300 characters; a very short tail joins its neighbour.
-2. **Translate** each segment in **units of up to about 40 characters** with `Helsinki-NLP/opus-mt-zh-en` (beam search, 6 beams, from the model's own generation config), and join the results. The units come from rules, not a model — the owner's writing runs on commas rather than full stops, so the comma serves as the clause boundary:
+2. **Translate** each segment in **units of up to about 40 characters** with `Helsinki-NLP/opus-mt-zh-en` (beam search, 6 beams, from the model's own generation config), and join the results. The 40 is not the model's limit — it reads up to 512 tokens, and the longest segment here was 144 — but a provisional setting from one entry: the largest size at which, with the caps on, no unit lost content (§7). The units come from rules, not a model — the owner's writing runs on commas rather than full stops, so the comma serves as the clause boundary:
    - cut first at hard boundaries: newlines and `。！？!?…；`;
    - a piece still over the limit is cut into clauses at soft boundaries (`，、：—`), and the clauses are packed back together up to the limit; English words are never cut;
    - generation is capped: no repeated 3-word sequence, and an output length bound by the input's length;
-   - a unit of 10 or more characters whose English word count per Chinese character falls below about 0.3 has dropped content, and is cut finer and translated again; one above about 1.2 has looped past the cap, and is flagged in the output.
+   - a unit of 10 or more characters whose English word count per source unit (a Chinese character, or an English word as one) falls below about 0.3 has dropped content, and is cut finer and translated again; one above about 1.2 has looped past the cap, and is flagged in the output. The check catches a unit that lost most of itself, not a long unit that lost only its last clause.
 
    Why units of this size, and not whole segments or single clauses: §7.
 3. **Classify** the English segment with `SamLowe/roberta-base-go_emotions`: 28 independent sigmoid scores (27 emotions and `neutral`, multi-label).
@@ -105,8 +105,11 @@ Provisional table v0 (V, A):
 ### Translation
 
 - **Translate-test is the standard cross-lingual route**, and translation drift is accepted for the POC.
-- **What it breaks** (all seen in the probe): a person's name translated as a common noun; application slang (套瓷, writing to a prospective supervisor) translated as an unrelated word; a typo (幸苦 for 辛苦) turning "you've worked so hard" into "you're so lucky"; English words inside Chinese sentences pass through; a long input's last sentences dropped without warning; a short or repetitive input looping or inventing text.
-- **Granularity changes the measurement, and no unit size is safe both ways.** Long units lose content silently; short ones loop or invent. Across six unit sizes the same segment's V ranged from −0.30 to +0.20 (§7). The generation caps make ~40-character units workable, at two costs: they also suppress repetition the writer meant (痛苦痛苦痛苦 becomes "pain and suffering"), and whether hf-inference accepts them as request parameters is not verified. Units also mean more calls: one per unit, unless the provider takes a batch.
+- **Local words don't survive.** The translator learned from general parallel text and has nothing for 套瓷 (writing to a prospective supervisor before applying): it came back as "put on the china", and once as an unrelated explicit word. Names and typos go the same way: a friend's name became "a bear"; 幸苦 for 辛苦 turned "you've worked so hard" into "you're so lucky". The classifier reacts mostly to the emotional words around such a word, so a garbled noun costs little — but a typo inside the emotional phrase itself changes the reading.
+  - **A possible fix, not adopted**: a glossary the owner keeps, replacing such words with plain Chinese before translation, by rule. In the probe 去联系教授 came back as "contact the professor", 去给教授发邮件 as "e-mail the professor", and a name replaced by 朋友 as "friends". Replacing with English instead made it worse: an English phrase inside the Chinese sentence garbled the whole sentence. The costs: one more table to keep, and it only covers words someone has noticed.
+- **Long and short inputs fail differently.** A long input loses its last sentences without warning; a short or repetitive one loops or invents text ("omg" became "I don't know what you're talking about"). English words inside Chinese sentences pass through.
+- **Granularity changes the measurement.** Across eight unit sizes, segment 2's V ranged from −0.30 to +0.34, while the other two segments moved much less (−0.17 to −0.36; +0.28 to +0.41) (§7). A segment that mixes four turns is fragile at any unit size: the steady fix for it is segmentation at newlines, not the unit. Units also mean more calls: one per unit, unless the provider takes a batch.
+- **Why the output is capped.** A looping translation isn't bounded by its input: it can run up to the model's 512-token maximum (in the probe, 46 "no"s for 40 characters). That costs three ways: the loop reaches the classifier as if the writer had said it; a long enough loop pushes the segment's real sentences past the classifier's own 512-token limit, where they are cut off; and hf-inference bills compute time, which a loop spends. The no-repeat rule stops the loop itself; the length bound (1.5 output tokens per source character, plus 8) is the backstop for a loop the rule misses, set so a normal translation never reaches it — no unit reached it in the probe. The costs: the no-repeat rule also suppresses repetition the writer meant (痛苦痛苦痛苦 becomes "pain and suffering"), and whether hf-inference accepts either as a request parameter is not verified.
 - **The way out is a model swap**: `Horizon-Labs/multilingual-emotions-*` reads Chinese with the same 28 labels, so the table and everything downstream stay. It needs an Inference Endpoint.
 
 ### The label set comes from English Reddit
@@ -149,7 +152,7 @@ What it shows:
 
 ### Translation unit size
 
-Segment 2 again, with only the translation unit changed (packing cuts at soft boundaries; the classifier still reads the whole translated segment):
+Segment 2 again, with only the translation unit changed and no caps (packing cuts at soft boundaries; the classifier still reads the whole translated segment):
 
 | Unit | Units | V | What went wrong in translation |
 | --- | --- | --- | --- |
@@ -162,6 +165,24 @@ Segment 2 again, with only the translation unit changed (packing cuts at soft bo
 
 - **Two failure modes, at opposite ends**: long inputs drop content, short or repetitive ones loop or invent. The ratio of English words to Chinese characters separates them: about 0.4–0.8 when the translation is whole, 0.19 for the dropped unit, 1.15–9.7 for the loops.
 - **The generation caps remove the loops.** With no repeated 3-word sequence and the output length bound, the 46 "no"s became "No, the prosecutor's always in judge. Fuck, leave me alone! It's more painful, painful and painful", and the endless "the pain" became "pain and suffering".
+
+The whole entry with the caps on:
+
+| Unit | Units | Flagged as dropped | V, segments 1 / 2 / 3 |
+| --- | --- | --- | --- |
+| whole segment | 3 | 0 | −0.25 / +0.03 / +0.40 |
+| cut at `。！？` | 10 | 0 | −0.23 / +0.34 / +0.40 |
+| packed to ≤ 80 characters | 7 | 1 | −0.36 / −0.06 / +0.40 |
+| packed to ≤ 60 characters | 9 | 1 | −0.17 / +0.27 / +0.40 |
+| packed to ≤ 40 characters | 14 | 0 | −0.31 / −0.06 / +0.40 |
+| packed to ≤ 30 characters | 19 | 0 | −0.30 / +0.09 / +0.35 |
+| packed to ≤ 20 characters | 29 | 1, false | −0.29 / −0.11 / +0.35 |
+| one clause per unit | 48 | 1, false | −0.33 / −0.29 / +0.36 |
+
+- **No loops and no unit reaching the length bound**, at any size.
+- **The ratio misses partial losses.** The whole-segment and `。！？` rows flag nothing, yet without caps those same units lost their last sentences (table above).
+- **The two false flags** are a clause made mostly of one English word, counted by its letters — hence counting an English word as one unit.
+- **Why 40**: ≤ 40 and ≤ 30 both came through clean; 40 means fewer calls and more context per unit, so fewer invented subjects. One entry is thin evidence: the sweep should be re-run on more entries before the number is fixed.
 
 ## 8. From the Numbers to the Painting
 
