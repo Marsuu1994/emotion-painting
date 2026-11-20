@@ -23,7 +23,8 @@ src/emotion_painting/    # The package (src layout)
 tests/                   # pytest tests, one file per module
 design/                  # Design docs
 ├── overall-design.md    # The one project-wide design: open questions first, then goal, phases, pipeline
-└── flows/               # Per-feature flow docs
+├── flows/               # Per-feature flow docs
+└── spikes/              # Dated research records: the candidates, the choice and its trade-offs; not kept current
 reviews/                 # The owner's code reviews, one file per PR: each comment, its kind and its outcome — README for people, rules in its AGENTS.md
 scripts/                 # Repo checks run in CI
 ```
