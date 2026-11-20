@@ -8,14 +8,13 @@ The one project-wide design: what the project is for, how it is phased and how t
 
 | # | Open | Phase 1 default |
 | --- | --- | --- |
-| 1 | **Where the emotion model runs.** No inference provider serves the chosen model (seen 2026-11-20), so it needs a host of our own: a dedicated Inference Endpoint (an active subscription and a card on file; CPU from $0.033 an hour, billed by the minute while running) or a Space (PRO to create; free CPU Basic hardware that sleeps after 48 hours unused). The old token is lost; a new one is needed either way. Which host is the owner's call. | The step calls an endpoint URL read from the environment; until one exists, a request fails at this step and says why. |
 | 2 | **Image fallback channel — pending.** Planned as `FLUX.1-schnell` over the Hugging Face Inference API with the same token. That model is no longer served by `hf-inference`, only through Inference Providers (fal-ai, wavespeed), which bill the account's inference credits and each take a different request shape (seen 2026-11-14). | No fallback: when Pollinations fails, the request fails. |
 | 3 | **Valence/arousal coordinates.** Each of the 28 emotion labels needs one (V, A) point: written by us from Russell's circumplex, or taken from published norms (NRC-VAD forbids redistribution; Warriner's licence is unchecked). | The provisional table v0 in the measurement spike. |
 | 4 | **Aesthetic mapping (Step 3).** A candidate is recorded in the measurement spike, not decided: V/A per segment → atmosphere phrases, the top 3 emotions → accent motifs, an LLM that only picks motif ids for the scroll's regions, all assembled by code under a fixed style block. | A placeholder template joins the imagery words and the dominant emotion. |
 | 5 | **Language of imagery words.** A Chinese entry yields Chinese words, and the prompt is meant to be English: translate them (and how), or pass them through? | Passed through untranslated. |
 | 6 | **Corpus for imagery scoring.** TF-IDF needs document frequencies, and a single entry has none. | Chinese words are scored against the IDF table bundled with jieba; English words by how often they occur once stopwords are gone. |
 | 7 | **Combining chunks into one emotion.** How per-chunk distributions become the entry's dominant emotion: plain mean, length-weighted mean, or the peak. | Mean weighted by chunk length. |
-| 8 | **One request for all chunks.** The design asks for a single batched inference call; whether the host accepts a list of chunks in one request is untested (question 1). | One call per chunk, sent concurrently. |
+| 8 | **One request for all chunks.** The design asks for a single batched inference call; whether the endpoint accepts a list of chunks in one request is untested until it is deployed. | One call per chunk, sent concurrently. |
 | 9 | **What `version` means.** A tag on the outputs, or a selector of parameter sets? | A tag: stamped on the snapshot's file names and metadata; the code at hand decides the behaviour. |
 
 ### Later
@@ -54,7 +53,7 @@ The ordered chunks go down two tracks that don't block each other.
 - **Track A — emotion distribution** (decides colour, light and mood). A fixed multilingual model, `Horizon-Labs/multilingual-emotions-base` (or its `-small` sibling), reads each chunk in Chinese, English or both, with no translation. How it was chosen, and what it costs, is in `spikes/measurement-layer.md`.
   - **Emotion**: the 28 GoEmotions labels (27 emotions and `neutral`), each scored independently (multi-label). The scores are normalised into a distribution, and each chunk keeps all of it, not just the top label.
   - **Valence and arousal**: computed, not measured — the distribution-weighted mean of a fixed (V, A) point per label (question 3).
-  - **Served over HTTP** from a host of our own (question 1): stateless calls, no weights on the machine, waiting out a cold start.
+  - **Served from a dedicated Hugging Face Inference Endpoint**, since no inference provider serves the model: stateless HTTP calls, no weights on the machine, waiting out a cold start. It runs on CPU, billed by the minute while it runs (from $0.033 an hour), and needs an active subscription and a card on file; it is deployed from a chosen commit, so the model's revision is pinned. Instance size, and `base` against `small`, are set when it is deployed.
   - Every output records the model id and revision and the coordinate table's version, so a change of model or table shows in the data.
 - **Track B — imagery words** (decides the subject and the scene). Rules and statistics only, no model: the text is routed by language — Chinese through jieba's part-of-speech tagging, keeping nouns, place words and time words; English through a stopword filter — and the top 3 to 5 words by score are the entry's imagery.
 
@@ -72,7 +71,7 @@ The top imagery words and the dominant emotion are combined into an English prom
 - **Two outputs per call.** The response body is the image itself, so it previews in Swagger UI (`/docs`) or any client. The same call also writes a snapshot to `./outputs/`, named by version and timestamp, for comparing versions side by side:
   - the image: `v{version}_{timestamp}.jpg`
   - its metadata: `v{version}_{timestamp}_meta.json` — the original text, each chunk's emotion distribution and V/A with the model revision, the top imagery words, the final prompt and the channel that produced the image.
-- **Secrets come from the environment**: the Hugging Face token is read from `HF_TOKEN`.
+- **Secrets come from the environment**: the Hugging Face token is read from `HF_TOKEN`, the emotion endpoint's URL from the environment too. The old token is lost; a new one is needed.
 - **Dependencies stay deployable to a serverless function** — no model weights and no heavy numeric stack — so Phase 2 can reuse the pipeline as it is.
 
 ## Phase 2 — Exposed API

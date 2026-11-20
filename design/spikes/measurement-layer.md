@@ -5,7 +5,7 @@ A dated record of how the measurement layer was chosen: the candidates, the one 
 - **Date:** 2026-11-19 → 2026-11-20
 - **Decided (2026-11-20):** score each Chinese segment directly with `Horizon-Labs/multilingual-emotions-*` on the 28 GoEmotions labels, and compute valence and arousal from that distribution with our own coordinate table. No translation.
 - **Before that (2026-11-19):** method 1 — translate to English, then the English classifier with the same labels. The probe showed what translation costs (§6, §7), and the owner switched to the simpler route; method 1 stays the fallback if the direct results turn out poor.
-- **Open:** where the model runs — no provider serves it (§5).
+- **Hosting (2026-11-20):** a dedicated Inference Endpoint, since no provider serves the model (§5).
 - **Next:** imagery extraction and the dynamic prompt (§8), not decided.
 
 ## 1. The Question
@@ -85,7 +85,7 @@ No inference provider serves either model (Hub API, 2026-11-20), so calling "the
 | Idle | a scaled-to-zero endpoint reloads the model on the next request | sleeps after 48 hours without use; the next request wakes it |
 | Revision | deployed from a chosen commit, so the model is pinned | pinned by whatever revision the app loads |
 
-Which one — and whether `base` fits the smallest instances — is not decided and not tested.
+**Decided: the Inference Endpoint** — the closest to just calling an API: no app to write, and the revision pinned at deploy. Instance size, and `base` against `small`, are set when it is deployed; neither is tested.
 
 ### Fallback — method 1 (translate first)
 
