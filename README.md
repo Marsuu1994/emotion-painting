@@ -15,7 +15,7 @@ The checks CI runs — formatting, lint, types, tests with the coverage floor �
 
 ## Current State
 
-Phase 1 — a local proof of concept behind one synchronous endpoint — is being built. So far the repository holds the project's design, its working rules and the Python environment (an empty package with its checks wired up); the pipeline isn't written yet. The emotion measurement is chosen — translate to English, score 28 emotions, compute valence and arousal from them — and the imagery extraction and dynamic prompt are next.
+Phase 1 — a local proof of concept behind one synchronous endpoint — is being built. So far the repository holds the project's design, its working rules and the Python environment (an empty package with its checks wired up); the pipeline isn't written yet. The emotion measurement is chosen — a multilingual model scores 28 emotions straight from the Chinese text, and valence and arousal are computed from them; where that model runs is still open — and the imagery extraction and dynamic prompt are next.
 
 ## Docs
 

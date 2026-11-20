@@ -8,16 +8,15 @@ The one project-wide design: what the project is for, how it is phased and how t
 
 | # | Open | Phase 1 default |
 | --- | --- | --- |
-| 1 | **Access to emotion inference.** Hugging Face answers the owner's token with `402` — pre-paid credits or a PRO subscription are required for Inference Providers (seen 2026-11-14), and the token has since been lost; a new fine-grained one with Inference Providers permission is needed. How the emotion step gets served is the owner's call. | The step is built against the Hugging Face API as designed; until the account can call it, a request fails at this step and says why. |
+| 1 | **Where the emotion model runs.** No inference provider serves the chosen model (seen 2026-11-20), so it needs a host of our own: a dedicated Inference Endpoint (an active subscription and a card on file; CPU from $0.033 an hour, billed by the minute while running) or a Space (PRO to create; free CPU Basic hardware that sleeps after 48 hours unused). The old token is lost; a new one is needed either way. Which host is the owner's call. | The step calls an endpoint URL read from the environment; until one exists, a request fails at this step and says why. |
 | 2 | **Image fallback channel — pending.** Planned as `FLUX.1-schnell` over the Hugging Face Inference API with the same token. That model is no longer served by `hf-inference`, only through Inference Providers (fal-ai, wavespeed), which bill the account's inference credits and each take a different request shape (seen 2026-11-14). | No fallback: when Pollinations fails, the request fails. |
 | 3 | **Valence/arousal coordinates.** Each of the 28 emotion labels needs one (V, A) point: written by us from Russell's circumplex, or taken from published norms (NRC-VAD forbids redistribution; Warriner's licence is unchecked). | The provisional table v0 in the measurement spike. |
 | 4 | **Aesthetic mapping (Step 3).** A candidate is recorded in the measurement spike, not decided: V/A per segment → atmosphere phrases, the top 3 emotions → accent motifs, an LLM that only picks motif ids for the scroll's regions, all assembled by code under a fixed style block. | A placeholder template joins the imagery words and the dominant emotion. |
-| 5 | **Language of imagery words.** A Chinese entry yields Chinese words, and the prompt is meant to be English: translate them (Track A's translation is at hand), or pass them through? | Passed through untranslated. |
+| 5 | **Language of imagery words.** A Chinese entry yields Chinese words, and the prompt is meant to be English: translate them (and how), or pass them through? | Passed through untranslated. |
 | 6 | **Corpus for imagery scoring.** TF-IDF needs document frequencies, and a single entry has none. | Chinese words are scored against the IDF table bundled with jieba; English words by how often they occur once stopwords are gone. |
 | 7 | **Combining chunks into one emotion.** How per-chunk distributions become the entry's dominant emotion: plain mean, length-weighted mean, or the peak. | Mean weighted by chunk length. |
-| 8 | **One request for all chunks.** The design asks for a single batched inference call; whether `hf-inference` accepts a list of inputs for translation and text classification could not be checked (question 1). | One call per input, sent concurrently. |
+| 8 | **One request for all chunks.** The design asks for a single batched inference call; whether the host accepts a list of chunks in one request is untested (question 1). | One call per chunk, sent concurrently. |
 | 9 | **What `version` means.** A tag on the outputs, or a selector of parameter sets? | A tag: stamped on the snapshot's file names and metadata; the code at hand decides the behaviour. |
-| 10 | **Translation caps over the provider.** The caps against looping (no repeated 3-word sequence, an output length bound) are generation parameters; whether `hf-inference` accepts them for translation could not be checked (question 1). | Sent with every request; a unit whose translation is far longer than its source is flagged in the output. |
 
 ### Later
 
@@ -52,11 +51,11 @@ Four steps, the same in every phase.
 
 The ordered chunks go down two tracks that don't block each other.
 
-- **Track A — emotion distribution** (decides colour, light and mood). Two fixed models over the Hugging Face Inference API — stateless HTTP, no weights on the machine, waiting out a cold model. How they were chosen, and what they cost, is in `spikes/measurement-layer.md`.
-  - **Translation**: `Helsinki-NLP/opus-mt-zh-en` turns each chunk into English in units of about 40 characters (provisional, set on one entry), cut by rules at punctuation — the comma included, since entries rarely use full stops — with its output capped against repetition. Translated whole, a long chunk loses its last sentences; translated a clause at a time, short pieces loop or invent text.
-  - **Emotion**: `SamLowe/roberta-base-go_emotions` scores the English chunk on the 28 GoEmotions labels (27 emotions and `neutral`), each independently (multi-label). The scores are normalised into a distribution, and each chunk keeps all of it, not just the top label.
+- **Track A — emotion distribution** (decides colour, light and mood). A fixed multilingual model, `Horizon-Labs/multilingual-emotions-base` (or its `-small` sibling), reads each chunk in Chinese, English or both, with no translation. How it was chosen, and what it costs, is in `spikes/measurement-layer.md`.
+  - **Emotion**: the 28 GoEmotions labels (27 emotions and `neutral`), each scored independently (multi-label). The scores are normalised into a distribution, and each chunk keeps all of it, not just the top label.
   - **Valence and arousal**: computed, not measured — the distribution-weighted mean of a fixed (V, A) point per label (question 3).
-  - Every output records both model ids and revisions and the coordinate table's version, so a change of model or table shows in the data.
+  - **Served over HTTP** from a host of our own (question 1): stateless calls, no weights on the machine, waiting out a cold start.
+  - Every output records the model id and revision and the coordinate table's version, so a change of model or table shows in the data.
 - **Track B — imagery words** (decides the subject and the scene). Rules and statistics only, no model: the text is routed by language — Chinese through jieba's part-of-speech tagging, keeping nouns, place words and time words; English through a stopword filter — and the top 3 to 5 words by score are the entry's imagery.
 
 ### Step 3 — Prompt build
@@ -72,7 +71,7 @@ The top imagery words and the dominant emotion are combined into an English prom
 - **One synchronous endpoint, `POST /generate`.** It takes the entry's `text` and an optional experiment `version` (the configured base version when absent), runs the four steps in memory and answers with the image.
 - **Two outputs per call.** The response body is the image itself, so it previews in Swagger UI (`/docs`) or any client. The same call also writes a snapshot to `./outputs/`, named by version and timestamp, for comparing versions side by side:
   - the image: `v{version}_{timestamp}.jpg`
-  - its metadata: `v{version}_{timestamp}_meta.json` — the original text, each chunk's translation, emotion distribution and V/A with the model revisions, the top imagery words, the final prompt and the channel that produced the image.
+  - its metadata: `v{version}_{timestamp}_meta.json` — the original text, each chunk's emotion distribution and V/A with the model revision, the top imagery words, the final prompt and the channel that produced the image.
 - **Secrets come from the environment**: the Hugging Face token is read from `HF_TOKEN`.
 - **Dependencies stay deployable to a serverless function** — no model weights and no heavy numeric stack — so Phase 2 can reuse the pipeline as it is.
 
@@ -107,6 +106,6 @@ A Database Webhook is fire-and-forget: a failed call is not retried. Two safety 
 
 ## Future Directions
 
-- **Emotion without translation**: `Horizon-Labs/multilingual-emotions-*` (Apache-2.0) reads Chinese with the same 28 labels, so swapping it in leaves the coordinate table and everything downstream as they are. No provider serves it; it needs an Inference Endpoint.
+- **Translate first, if direct scoring reads poorly**: translate to English and score with the English GoEmotions classifier (`SamLowe/roberta-base-go_emotions`) — the same 28 labels, so the coordinate table and everything downstream stay. The spike records what translation costs.
 - **Imagery from a model**: a multilingual model over the same Hugging Face API (`Davlan/xlm-roberta-base-ner-hrl`, or embedding similarity) to catch imagery the text only implies.
 - **Generative art** (p5.js, WebGL, shaders): rendering straight from the raw emotion matrix and its movement along the entry, instead of from a prompt.

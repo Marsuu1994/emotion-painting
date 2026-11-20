@@ -2,8 +2,10 @@
 
 A dated record of how the measurement layer was chosen: the candidates, the one picked, what it costs, and one probe run. It is not kept current — `../overall-design.md` holds the pipeline as it is now.
 
-- **Date:** 2026-11-19
-- **Decided:** method 1 — translate the entry to English, score each segment with a 28-label emotion classifier, compute valence and arousal from that distribution with our own coordinate table.
+- **Date:** 2026-11-19 → 2026-11-20
+- **Decided (2026-11-20):** score each Chinese segment directly with `Horizon-Labs/multilingual-emotions-*` on the 28 GoEmotions labels, and compute valence and arousal from that distribution with our own coordinate table. No translation.
+- **Before that (2026-11-19):** method 1 — translate to English, then the English classifier with the same labels. The probe showed what translation costs (§6, §7), and the owner switched to the simpler route; method 1 stays the fallback if the direct results turn out poor.
+- **Open:** where the model runs — no provider serves it (§5).
 - **Next:** imagery extraction and the dynamic prompt (§8), not decided.
 
 ## 1. The Question
@@ -30,7 +32,7 @@ Two passes: forward from the text, to see what can be measured at all; then back
 3. **Train a head ourselves** on a frozen embedding (BRIGHTER Chinese, CC-BY-4.0) — dropped by the owner: no training.
 4. **Translate, then use English resources.** English has direct V/A models, but the one on the Hub (`BenRongey/deberta-v3-base-emobank-vad`) is a personal upload with an auto-generated card.
 5. **Mendes & Martins (ECIR 2023)**, a peer-reviewed multilingual V/A model trained on Chinese data too — the most citable, dropped: the weights carry no licence and the training data includes research-only sets.
-6. **Licence-clean, hosted, today** left three routes (§4), and method 1 was picked.
+6. **Licence-clean and on the Hub** left three routes (§4). Method 1 was picked first because both its models are served by a provider; the probe then showed translation losing and inventing content, and the POC moved to reading Chinese directly (§5).
 
 ### Backward — from the painting
 
@@ -45,7 +47,7 @@ Start from the image prompt (the style discussion in the diary → painting hand
 | Accents per region (falling leaves, a touch of vermilion, a lit window) | texture | **the top emotions, by name, with scores**, per segment |
 | Main motif per region | what is painted | the text, read for its narrative (§8) |
 
-So the measurement layer has to deliver, per segment and in order, **a full distribution over named emotions plus a V/A point**. A model that outputs only V/A (Mendes & Martins, the EmoBank DeBERTa) serves the atmosphere but not the accents. A distribution serves both, because V/A can be computed from it. That is why method 1 fits beyond its licences: it is the only hosted candidate whose output covers every row above.
+So the measurement layer has to deliver, per segment and in order, **a full distribution over named emotions plus a V/A point**. A model that outputs only V/A (Mendes & Martins, the EmoBank DeBERTa) serves the atmosphere but not the accents. A distribution serves both, because V/A can be computed from it. That is why the 28-label classifiers fit beyond their licences: their output covers every row above.
 
 ## 4. Candidates
 
@@ -57,10 +59,37 @@ So the measurement layer has to deliver, per segment and in order, **a full dist
 | `tabularisai/multilingual-emotion-classification` | 11 emotions | yes | hf-inference | MIT on the Hub, NC elsewhere | licence unclear |
 | `BenRongey/deberta-v3-base-emobank-vad` | V, A, D | after translation | no — needs an endpoint | MIT (EmoBank CC-BY-SA 4.0) | weak model card; no distribution |
 | Mendes & Martins, XLM-R-large | V, A | yes | no — self-host | code MIT, weights none | dropped: licence |
-| `Horizon-Labs/multilingual-emotions-base` / `-small` | the same 28 GoEmotions labels | yes | no — needs an endpoint | Apache-2.0 | **the upgrade path**: drops translation, same labels |
-| **Method 1:** `Helsinki-NLP/opus-mt-zh-en` → `SamLowe/roberta-base-go_emotions` | 28 GoEmotions labels | after translation | **both on hf-inference** | CC-BY-4.0 → MIT (GoEmotions Apache-2.0) | **chosen** |
+| **`Horizon-Labs/multilingual-emotions-base` / `-small`** | the same 28 GoEmotions labels | **yes, directly** | no — needs an endpoint or a Space | Apache-2.0 | **chosen for the POC** |
+| Method 1: `Helsinki-NLP/opus-mt-zh-en` → `SamLowe/roberta-base-go_emotions` | 28 GoEmotions labels | after translation | both on hf-inference | CC-BY-4.0 → MIT (GoEmotions Apache-2.0) | first choice, now the fallback: translation drops and invents content (§6) |
 
-## 5. Decision — Method 1
+## 5. Decision — Read Chinese Directly
+
+1. **Segment** (rules): at newlines; a long block without one is packed sentence by sentence into ~200–300 characters; a very short tail joins its neighbour.
+2. **Classify** each Chinese segment with `Horizon-Labs/multilingual-emotions-base` (308M) or `-small` (141M): 28 independent sigmoid scores (27 emotions and `neutral`, multi-label). Built on mmBERT, trained on GoEmotions plus its machine translations into 35 languages, at up to 256 tokens — a 200–300-character segment is about 120–150.
+3. **Normalise** the 28 scores to sum to 1 — the distribution the charts and the accents use. The raw scores are kept too.
+4. **V/A** = the distribution-weighted mean of a fixed coordinate table: each label has one (V, A) point in [−1, 1], `neutral` at the origin.
+
+Stored per segment: the source text, the raw scores, the distribution, V, A, the model id with its revision, and the coordinate table's version.
+
+`base` scores higher on the model card's benchmarks (macro-F1 0.420 against 0.406 on BRIGHTER's six emotions, human-labelled text in 28 languages); `small` is less than half the size. Apache-2.0 asks that the licence notice be kept; listing it in the project's docs is enough.
+
+### Hosting
+
+No inference provider serves either model (Hub API, 2026-11-20), so calling "the Hugging Face API" means first running the model somewhere of our own. Neither option needs custom code for the model itself: it is a standard `text-classification` model whose config marks it multi-label, so the stock pipeline applies a sigmoid, and asking for all 28 labels returns the whole distribution.
+
+| | Inference Endpoint | Space (Docker or Gradio) |
+| --- | --- | --- |
+| What it is | a dedicated API for one model, managed by Hugging Face | a small app we write (about 20 lines) that loads the model and answers HTTP |
+| Hardware | CPU from $0.033/hour (AWS, 1 vCPU, 2 GB) — $0.067/hour for 2 vCPU, 4 GB; billed by the minute while running; can be paused or scaled to zero | CPU Basic: 2 vCPU, 16 GB, free hardware |
+| Account | an active subscription and a card on file | creating a Docker or Gradio Space needs PRO |
+| Idle | a scaled-to-zero endpoint reloads the model on the next request | sleeps after 48 hours without use; the next request wakes it |
+| Revision | deployed from a chosen commit, so the model is pinned | pinned by whatever revision the app loads |
+
+Which one — and whether `base` fits the smallest instances — is not decided and not tested.
+
+### Fallback — method 1 (translate first)
+
+If reading Chinese directly gives poor results, translate to English and use the English classifier with the same 28 labels; the coordinate table and everything downstream stay. What the probe settled about it:
 
 1. **Segment** (rules): at newlines; a long block without one is packed sentence by sentence into ~200–300 characters; a very short tail joins its neighbour.
 2. **Translate** each segment in **units of up to about 40 characters** with `Helsinki-NLP/opus-mt-zh-en` (beam search, 6 beams, from the model's own generation config), and join the results. The 40 is not the model's limit — it reads up to 512 tokens, and the longest segment here was 144 — but a provisional setting from one entry: the largest size at which, with the caps on, no unit lost content (§7). The units come from rules, not a model — the owner's writing runs on commas rather than full stops, so the comma serves as the clause boundary:
@@ -74,9 +103,9 @@ So the measurement layer has to deliver, per segment and in order, **a full dist
 4. **Normalise** the 28 scores to sum to 1 — the distribution the charts and the accents use. The raw scores are kept too.
 5. **V/A** = the distribution-weighted mean of a fixed coordinate table: each label has one (V, A) point in [−1, 1], `neutral` at the origin.
 
-Stored per segment: the source text, its translation, the raw scores, the distribution, V, A, both model ids with their revisions, and the coordinate table's version.
+Stored per segment in this variant: the translation as well, and both model ids with their revisions. Attribution: CC-BY-4.0 (the translator) asks for credit; MIT keeps its notice.
 
-Attribution: CC-BY-4.0 (the translator) asks for credit; MIT and Apache-2.0 keep their notices. Listing them in the project's docs is enough.
+A commercial translation API (DeepL, Google, Azure) would likely translate far better than `opus-mt`, but none of them pins a model version — DeepL states it may change the model behind a model type — so its translation would have to be done once and stored as part of the record, not recomputed.
 
 ## 6. Trade-offs
 
@@ -88,7 +117,7 @@ Attribution: CC-BY-4.0 (the translator) asks for credit; MIT and Apache-2.0 keep
   - Written by us from the positions in Russell (1980) — no licence question; the default. A provisional v0 is below, for the owner to tune.
   - NRC-VAD — the earlier discussion suggested it, but its terms are non-commercial and forbid redistribution, and its values would ship inside our table.
   - Warriner et al. (2013) norms — licence not checked.
-- **Normalising is a choice too.** The 28 sigmoid scores are independent and don't sum to 1 (0.95–1.76 in the probe). Normalising makes segments comparable but hides how strongly the model fired overall; `neutral` at the origin pulls every point toward the centre in proportion to its score.
+- **Normalising is a choice too.** The 28 sigmoid scores are independent and don't sum to 1 (0.35–2.41 in the probe). Normalising makes segments comparable but hides how strongly the model fired overall; `neutral` at the origin pulls every point toward the centre in proportion to its score.
 
 Provisional table v0 (V, A):
 
@@ -102,21 +131,21 @@ Provisional table v0 (V, A):
 | optimism 0.6, 0.3 | pride 0.6, 0.4 | realization 0.1, 0.3 | relief 0.5, −0.4 |
 | remorse −0.6, −0.2 | sadness −0.7, −0.4 | surprise 0.2, 0.7 | neutral 0, 0 |
 
-### Translation
+### Translation — why the POC skips it
 
-- **Translate-test is the standard cross-lingual route**, and translation drift is accepted for the POC.
+These findings, from method 1, are why the POC reads Chinese directly; they hold again if method 1 comes back.
+
+- **Translate-test is the standard cross-lingual route.** `opus-mt-zh-en` is a small one: about 78M parameters, trained in 2020 on sentence-aligned pairs, and scored on short Tatoeba sentences (BLEU 36.1).
 - **Local words don't survive.** The translator learned from general parallel text and has nothing for 套瓷 (writing to a prospective supervisor before applying): it came back as "put on the china", and once as an unrelated explicit word. Names and typos go the same way: a friend's name became "a bear"; 幸苦 for 辛苦 turned "you've worked so hard" into "you're so lucky". The classifier reacts mostly to the emotional words around such a word, so a garbled noun costs little — but a typo inside the emotional phrase itself changes the reading.
   - **A possible fix, not adopted**: a glossary the owner keeps, replacing such words with plain Chinese before translation, by rule. In the probe 去联系教授 came back as "contact the professor", 去给教授发邮件 as "e-mail the professor", and a name replaced by 朋友 as "friends". Replacing with English instead made it worse: an English phrase inside the Chinese sentence garbled the whole sentence. The costs: one more table to keep, and it only covers words someone has noticed.
 - **Long and short inputs fail differently.** A long input loses its last sentences without warning; a short or repetitive one loops or invents text ("omg" became "I don't know what you're talking about"). English words inside Chinese sentences pass through.
 - **Granularity changes the measurement.** Across eight unit sizes, segment 2's V ranged from −0.30 to +0.34, while the other two segments moved much less (−0.17 to −0.36; +0.28 to +0.41) (§7). A segment that mixes four turns is fragile at any unit size: the steady fix for it is segmentation at newlines, not the unit. Units also mean more calls: one per unit, unless the provider takes a batch.
 - **Why the output is capped.** A looping translation isn't bounded by its input: it can run up to the model's 512-token maximum (in the probe, 46 "no"s for 40 characters). That costs three ways: the loop reaches the classifier as if the writer had said it; a long enough loop pushes the segment's real sentences past the classifier's own 512-token limit, where they are cut off; and hf-inference bills compute time, which a loop spends. The no-repeat rule stops the loop itself; the length bound (1.5 output tokens per source character, plus 8) is the backstop for a loop the rule misses, set so a normal translation never reaches it — no unit reached it in the probe. The costs: the no-repeat rule also suppresses repetition the writer meant (痛苦痛苦痛苦 becomes "pain and suffering"), and whether hf-inference accepts either as a request parameter is not verified.
-- **The way out is a model swap**: `Horizon-Labs/multilingual-emotions-*` reads Chinese with the same 28 labels, so the table and everything downstream stay. It needs an Inference Endpoint.
 
 ### The label set comes from English Reddit
 
 - GoEmotions is 58k English Reddit comments, labelled by raters reading them: it measures emotion **as a reader perceives it**, not as the writer felt it.
-- A diary is neither Reddit nor English. The top labels carry noise; taking only the top 3 above a threshold (§8) filters part of it.
-- Both models read at most 512 tokens; a 200–300-character segment is well inside that.
+- A diary is neither Reddit nor English. Horizon's Chinese comes from machine translations of those comments, not from Chinese writing. The top labels carry noise; taking only the top 3 above a threshold (§8) filters part of it — the model ships per-label thresholds tuned on GoEmotions.
 
 ### Context
 
@@ -125,15 +154,17 @@ The classifier sees one segment at a time, so comfort that only makes sense afte
 ### Reproducibility
 
 - Two local runs gave byte-identical output.
-- Hosted, the provider serves the repository's current revision: if the author updates a model, the numbers change. Each output records the revision so a change is visible. Whether the provider's hardware reproduces local scores to the last digit is not verified.
+- Two local runs of each Horizon model were identical too.
+- Hosted, an Inference Endpoint is deployed from a chosen commit, so an update by the model's author doesn't reach it until we redeploy. Each output records the revision so a change is visible. Whether the hosted hardware reproduces local scores to the last digit is not verified.
 
 ### Access and cost
 
-Both models are live on hf-inference, so nothing is hosted by us. Calling them needs a Hugging Face token with Inference Providers permission and credits: hf-inference bills compute time; free accounts get no monthly credit, PRO gets $2 a month (overall design, open question 1).
+- **Direct (chosen)**: we run the model — an Endpoint billed by the minute while running, or a Space on free hardware that needs PRO to create (§5).
+- **Method 1**: both models are live on hf-inference, so nothing is hosted by us, but calls need credits: hf-inference bills compute time; free accounts get no monthly credit, PRO gets $2 a month.
 
-## 7. Probe Run (2026-11-19)
+## 7. Probe Run (2026-11-19 → 20)
 
-One entry from the diary → painting handoff (about 1,260 characters, no newlines), run on CPU in a scratch environment with the same model revisions the provider serves (`opus-mt-zh-en` `cf10909`, `roberta-base-go_emotions` `d750483`). The fallback split it into three segments. The diary text is not reproduced here.
+One entry from the diary → painting handoff (about 1,260 characters, no newlines), run on CPU in a scratch environment with the same model revisions the Hub serves. The fallback split it into three segments. The diary text is not reproduced here. First method 1 (`opus-mt-zh-en` `cf10909`, `roberta-base-go_emotions` `d750483`):
 
 | Segment | Content (paraphrase) | Chars | Translated | Top 3 (normalised) | V | A |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -149,6 +180,21 @@ What it shows:
 - **Segment 2 is the problem segment.** It holds four turns — overwhelm, self-comfort, the inner critic, anger — because the entry has no newlines to split them. Translated whole, the anger at its end was dropped and "you're the best" dominated (`admiration`); cut at `。！？`, `sadness` dominated. With the owner's newline habit this block would likely be three or four segments.
 - **Questions read as `curiosity`.** Rhetorical self-questions ("why is it like this?") score as curiosity, which v0 places at positive valence — an example of the label set misreading a diary.
 - **Segment 3 is a short tail** (56 characters); the packing rule should join it to its neighbour.
+
+### Reading Chinese directly
+
+The same three segments, no translation, scored by both Horizon models (`-small` `ac26dad`, `-base` `4f95ad2`):
+
+| Segment | Content (paraphrase) | Tokens | `-small` top 3 | V / A | `-base` top 3 | V / A |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | low for days, outside pressure | 117 | sadness .45, love .16, curiosity .15 | −0.15 / −0.02 | curiosity .29, sadness .26, confusion .21 | −0.17 / 0.11 |
+| 2 | overwhelmed, self-comfort, inner critic, anger | 143 | anger .41, annoyance .21, optimism .12 | −0.29 / 0.43 | annoyance .21, neutral .15, anger .14 | −0.10 / 0.24 |
+| 3 | back to the present, call mum | 35 | neutral .53, caring .20, approval .17 | +0.21 / 0.05 | neutral .31, caring .29, approval .25 | +0.33 / 0.06 |
+
+- **The arc comes through again**: negative → negative → positive.
+- **Segment 2's anger is seen.** Every translated run either lost it or ranked it low; read in Chinese, both models put anger or annoyance first, with arousal the highest of the three segments — closer to what the segment says.
+- **The two sizes disagree in detail.** On segment 1 `small` leads with sadness, `base` with curiosity; on segment 2 `base` spreads its weight, with `neutral` second. With one entry and no labels, neither is shown to be better.
+- **How strongly the model fires varies.** The 28 raw scores summed to 0.35 on segment 2 for `small` and 2.41 on segment 1 for `base`; normalising hides that (§6).
 
 ### Translation unit size
 
@@ -253,13 +299,17 @@ Not decided. What has to be settled before it is built:
 - [GoEmotions (Demszky et al., ACL 2020)](https://arxiv.org/abs/2005.00547)
 - [GoEmotions dataset](https://huggingface.co/datasets/google-research-datasets/go_emotions)
 - [Horizon-Labs/multilingual-emotions-base](https://huggingface.co/Horizon-Labs/multilingual-emotions-base)
+- [Horizon-Labs/multilingual-emotions-small](https://huggingface.co/Horizon-Labs/multilingual-emotions-small)
+- [Inference Endpoints pricing](https://huggingface.co/docs/inference-endpoints/pricing)
+- [Spaces hardware and sleep rules](https://huggingface.co/docs/hub/spaces-gpus)
+- [DeepL: understanding model types](https://developers.deepl.com/docs/translate/understanding-model-types)
 - [Mendes & Martins, ECIR 2023](https://arxiv.org/abs/2302.14021)
 - [multilingual_va_prediction (README, LICENSE)](https://github.com/gmendes9/multilingual_va_prediction)
 - [BenRongey/deberta-v3-base-emobank-vad](https://huggingface.co/BenRongey/deberta-v3-base-emobank-vad)
 - [NRC VAD Lexicon — terms of use](https://www.saifmohammad.com/WebPages/nrc-vad.html)
 - Russell, J. A. (1980). A circumplex model of affect. *Journal of Personality and Social Psychology*, 39(6), 1161–1178.
 - [Inference Providers pricing](https://huggingface.co/docs/inference-providers/pricing)
-- Hub API (`/api/models/<id>?expand[]=inferenceProviderMapping`), 2026-11-19: both method 1 models `live` on hf-inference.
+- Hub API (`/api/models/<id>?expand[]=inferenceProviderMapping`): both method 1 models `live` on hf-inference (2026-11-19); no provider for either Horizon model (2026-11-20).
 
 ## Appendix — Source Discussion (verbatim)
 
