@@ -58,6 +58,7 @@ The ordered chunks go down two tracks that don't block each other.
   - **What it returns**, in a fixed JSON shape: 3 to 6 beats in order, each covering a run of chunks, with its zone on the scroll (outside, struggle, core, landing), its motif in English and the objects it names; the beat painted at the centre; and up to two lines of the entry to write into the painting.
   - **Checked by code**: every chunk in exactly one beat, in order; quote lines verbatim, or dropped. A refusal or a failed check falls back to a `sealed` motif — a folded letter, a closed door.
   - **Not reproducible**: the same entry gets different motifs on each run, so the output is stored with the model id and the prompt's version.
+  - **The owner's motif lexicon** is next: built by hand over ten entries, each image tied to an emotion and a scroll zone. Until it exists the LLM writes motifs freely; after, it picks lexicon ids and proposes new images for the owner to approve.
 
 ### Step 3 — Prompt build
 
@@ -70,6 +71,7 @@ Code joins the two tracks by chunk number and writes the English prompt: the fix
 ## Phase 1 — Local POC
 
 - **One synchronous endpoint, `POST /generate`.** It takes the entry's `text` and an optional experiment `version` (the configured base version when absent), runs the four steps in memory and answers with the image.
+- **A streaming twin, `POST /generate/stream`**: the same pipeline, sending each step's output as a server-sent event the moment it finishes — the chunks, each chunk's emotion as its call returns, the LLM's beats, the joined regions, the prompt, then the image — so every step can be watched and checked.
 - **Two outputs per call.** The response body is the image itself, so it previews in Swagger UI (`/docs`) or any client. The same call also writes a snapshot to `./outputs/`, named by version and timestamp, for comparing versions side by side:
   - the image: `v{version}_{timestamp}.jpg`
   - its metadata: `v{version}_{timestamp}_meta.json` — the original text, each chunk's emotion distribution and V/A with the model revision, the LLM's beats with its model and prompt version, the final prompt and the channel that produced the image.
@@ -108,5 +110,4 @@ A Database Webhook is fire-and-forget: a failed call is not retried. Two safety 
 ## Future Directions
 
 - **Translate first, if direct scoring reads poorly**: translate to English and score with the English GoEmotions classifier (`SamLowe/roberta-base-go_emotions`) — the same 28 labels, so the coordinate table and everything downstream stay. The spike records what translation costs.
-- **A motif lexicon**: the owner's own motifs, each with a prompt template, and the LLM picking ids from it instead of writing motifs freely — more control, the same output shape.
 - **Generative art** (p5.js, WebGL, shaders): rendering straight from the raw emotion matrix and its movement along the entry, instead of from a prompt.

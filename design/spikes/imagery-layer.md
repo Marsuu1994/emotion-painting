@@ -4,7 +4,7 @@ A dated record of how the imagery layer was chosen: what it replaces, how it run
 
 - **Date:** 2026-11-20
 - **Decided:** an LLM — Claude Sonnet 5.5 (`claude-sonnet-5-5`), not the flagship — reads the segmented entry and returns the scroll's structure as JSON. It runs in parallel with the measurement layer; code joins the two by segment number and assembles the image prompt. It replaces the rule-based Track B (jieba nouns).
-- **Next:** the two phrase tables (atmosphere, accents), the style block in code, and a probe run on one entry.
+- **Next (2026-11-20):** the owner builds a motif lexicon by hand over ten entries (§7), and the LLM's output is tried on them; a streaming endpoint shows every step's output as it finishes.
 
 ## 1. The Question
 
@@ -21,7 +21,7 @@ What the painting shows, region by region, and how that is joined with the emoti
 | Option | What it gets | Verdict |
 | --- | --- | --- |
 | Track B as designed: jieba nouns, place and time words, TF-IDF | the objects the entry names — applications, letters, a mother | replaced: imagery here means the pictures the writer uses for an inner state (a weight on the chest, being tied down), which nouns don't capture; and it can't find a turning point or group segments into regions |
-| An owner-kept motif lexicon, the LLM picking ids (the diary → painting handoff) | the most control: motifs are the owner's own visual language | deferred: needs lexicon v1 first; the output field below can later switch from free text to an id |
+| An owner-kept motif lexicon, the LLM picking ids (the diary → painting handoff) | the most control: motifs are the owner's own visual language | **next**: built by hand over ten entries (§7); until then the LLM writes motifs freely, and the output gains a lexicon id once there is one |
 | Embedding nearest neighbour against owner-labelled examples | deterministic picks | dropped for now: needs labels, and the clustering experiment showed embeddings confusing what writing *does* (inner critic against self-comfort) |
 | **An LLM writing the structure freely, under a fixed schema** | regions, turning point, motifs and quote lines in one call | **chosen for the POC** |
 
@@ -74,7 +74,16 @@ entry ─rules─→ numbered segments ─┬─→ measurement (Inference Endpo
 - **English motifs** settle the old question of what language imagery words come in.
 - **Free motifs drift** from the owner's visual language; the lexicon is how that comes back, once there is one.
 
-## 7. Open
+## 7. The Motif Lexicon, by Hand
+
+The owner's visual language, written down: the step that turns "看天发挥" into the owner's own picks.
+
+1. **Ten entries, one at a time, in conversation.** For each, ten candidate images are listed, each tied to the emotion it carries: the writer's own metaphor where there is one, otherwise a picture for the inner state — never the objects the entry merely names.
+2. **The owner picks**: keep, rewrite or drop each one. A kept image becomes a lexicon entry, or joins one that already says the same.
+3. **Each entry holds**: an id, the Chinese the owner thinks in, the English prompt fragment the painting uses, the scroll zones and emotions it fits, and the diaries it came from.
+4. **The LLM is tried on the same ten**: its free motifs, then its picks once the lexicon exists, against the owner's — the first look at whether this step reads the way the owner does.
+
+## 8. Open
 
 - The two tables: V/A → atmosphere phrases (how many bins on each axis), and emotion → accent phrase with its threshold. Candidates are in `measurement-layer.md` §8.
 - The style block, from the diary → painting handoff, as a constant in code.
