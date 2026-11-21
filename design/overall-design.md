@@ -8,9 +8,10 @@ The one project-wide design: what the project is for, how it is phased and how t
 
 | # | Open | Phase 1 default |
 | --- | --- | --- |
-| 2 | **Image fallback channel — pending.** Planned as `FLUX.1-schnell` over the Hugging Face Inference API with the same token. That model is no longer served by `hf-inference`, only through Inference Providers (fal-ai, wavespeed), which bill the account's inference credits and each take a different request shape (seen 2026-11-14). | No fallback: when Pollinations fails, the request fails. |
+| 2 | **Image service.** Anonymous Pollinations now paints with `sana`, not Flux, keeps its watermark and allows one image per 45 seconds per IP (seen 2026-11-21). The options — Pollinations with a key, Gemini with a style reference image, FLUX over Inference Providers — are in `spike/image-generation.md`. | Anonymous Pollinations, 512×1024, a fixed seed; a rate-limited request is retried once after the wait it asks for. |
 | 3 | **Valence/arousal coordinates.** Each of the 28 emotion labels needs one (V, A) point: written by us from Russell's circumplex, or taken from published norms (NRC-VAD forbids redistribution; Warriner's licence is unchecked). | The provisional table v0 in the measurement spike. |
 | 4 | **Phrase tables (Step 3).** Which atmosphere phrase a region's V/A picks (light, warmth, density; how many bins on each axis), and which accent phrase each emotion picks, above what threshold. Proposed in `spike/imagery-layer.md` (its open question 1); candidates in `spike/measurement-layer.md`. | A placeholder table: three bins on each axis, one accent per emotion family, threshold 0.1. |
+| 5 | **Quote lines in the painting.** The LLM picks them in Chinese, which most image models can't write. Leave them out, ask the LLM for English, overlay the Chinese in code after painting, or use a model that writes Chinese — options in `spike/image-generation.md`. | Left out of the prompt; kept in the snapshot's metadata. |
 | 7 | **Combining chunks into a region.** How the distributions of the chunks a beat covers become that region's emotion: plain mean, length-weighted mean, or the peak. | Mean weighted by chunk length. |
 | 8 | **One request for all chunks.** The design asks for a single batched inference call; whether the endpoint accepts a list of chunks in one request is untested until it is deployed. | One call per chunk, sent concurrently. |
 | 9 | **What `version` means.** A tag on the outputs, or a selector of parameter sets? | A tag: stamped on the snapshot's file names and metadata; the code at hand decides the behaviour. |
@@ -41,7 +42,7 @@ Four steps, the same in every phase.
 ### Step 1 — Chunking and preprocessing (rules, no AI)
 
 - **Light cleaning**: URLs and runs of blank lines go. Punctuation (`!!!`, `...`), letter case and emoji stay exactly as written — they signal arousal.
-- **Two-level split**: first into paragraphs at line breaks; a paragraph over the model's limit (about 350 characters, 512 tokens) is split again at sentence ends (`。！？.!?`) into groups of sentences, so no sentence is cut.
+- **Two-level split**: first into paragraphs at line breaks — the owner breaks a line where the emotion turns. A paragraph over the chunk limit (about 300 characters; the emotion model was trained on up to 256 tokens) is packed sentence by sentence (`。！？.!?`) into chunks up to the limit, so no sentence is cut; a chunk under the minimum length joins its neighbour.
 - **Physical features**: each chunk keeps its position in the entry and its character count.
 - No embedding here: the downstream model brings its own tokenizer and embedding layer.
 
@@ -62,19 +63,19 @@ The ordered chunks go down two tracks that don't block each other.
 
 ### Step 3 — Prompt build
 
-Code joins the two tracks by chunk number and writes the English prompt: the fixed style block, then each beat top to bottom — its motif, an atmosphere phrase from its V/A (light, warmth, density) and accent phrases from its top emotions — and the quote lines. Numbers never go into the prompt as numbers, and the phrases keep to a warm range: sadness can make a region paler, emptier and further away, never darker. The phrase tables are open (question 4).
+Code joins the two tracks by chunk number and writes the English prompt: the fixed style block, then each beat top to bottom — its motif, an atmosphere phrase from its V/A (light, warmth, density) and accent phrases from its top emotions — and, depending on question 5, the quote lines. Numbers never go into the prompt as numbers, and the phrases keep to a warm range: sadness can make a region paler, emptier and further away, never darker. The phrase tables are open (question 4).
 
 ### Step 4 — Image generation
 
-**Pollinations.ai** first: no account and no key — a plain HTTP GET with the URL-encoded prompt returns the image bytes of a Flux model. A fallback channel is pending (question 2).
+**Pollinations.ai**, anonymous: no account and no key — a plain HTTP GET with the URL-encoded prompt, the size and a seed returns a vertical image; the same request returns the same bytes. Anonymous requests are painted by `sana`, carry a watermark and are limited to one per 45 seconds per IP; which service paints is open (question 2). The call sits behind one interface — prompt, size and seed in, image bytes out — so a change of service changes only that layer.
 
 ## Phase 1 — Local POC
 
-- **One synchronous endpoint, `POST /generate`.** It takes the entry's `text` and an optional experiment `version` (the configured base version when absent), runs the four steps in memory and answers with the image.
+- **One synchronous endpoint, `POST /generate`.** It takes the entry's `text` and an optional experiment `version` (the configured base version when absent), runs the four steps in memory and answers with the image. Its step-by-step contract is `flows/generate.md`.
 - **A streaming twin, `POST /generate/stream`**: the same pipeline, sending each step's output as a server-sent event the moment it finishes — the chunks, each chunk's emotion as its call returns, the LLM's beats, the joined regions, the prompt, then the image — so every step can be watched and checked.
 - **Two outputs per call.** The response body is the image itself, so it previews in Swagger UI (`/docs`) or any client. The same call also writes a snapshot to `./outputs/`, named by version and timestamp, for comparing versions side by side:
   - the image: `v{version}_{timestamp}.jpg`
-  - its metadata: `v{version}_{timestamp}_meta.json` — the original text, each chunk's emotion distribution and V/A with the model revision, the LLM's beats with its model and prompt version, the final prompt and the channel that produced the image.
+  - its metadata: `v{version}_{timestamp}_meta.json` — the original text, each chunk's emotion distribution and V/A with the model revision, the LLM's beats with its model and prompt version, the final prompt, the size and seed, and the channel that produced the image.
 - **Secrets come from the environment**: the Hugging Face token is read from `HF_TOKEN`, the emotion endpoint's URL from the environment too, and the LLM's key from `ANTHROPIC_API_KEY`.
 - **Dependencies stay deployable to a serverless function** — no model weights and no heavy numeric stack — so Phase 2 can reuse the pipeline as it is.
 

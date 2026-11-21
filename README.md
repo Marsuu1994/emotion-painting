@@ -15,7 +15,7 @@ The checks CI runs — formatting, lint, types, tests with the coverage floor �
 
 ## Current State
 
-Phase 1 — a local proof of concept behind one synchronous endpoint — is being built. So far the repository holds the project's design, its working rules and the Python environment (an empty package with its checks wired up); the pipeline isn't written yet. The pipeline's design is settled: a multilingual model on a Hugging Face Inference Endpoint scores 28 emotions straight from the Chinese text, and valence and arousal are computed from them; in parallel an LLM reads the entry for the scroll's regions and motifs; code joins the two into the image prompt.
+Phase 1 — a local proof of concept behind one synchronous endpoint — is being built. So far the repository holds the project's design, its working rules and the Python environment (an empty package with its checks wired up); the pipeline isn't written yet. The pipeline's design is settled: a multilingual model on a Hugging Face Inference Endpoint scores 28 emotions straight from the Chinese text, and valence and arousal are computed from them; in parallel an LLM reads the entry for the scroll's regions and motifs; code joins the two into the image prompt. The end-to-end contract is `design/flows/generate.md`; which image service paints is still open.
 
 ## Docs
 
