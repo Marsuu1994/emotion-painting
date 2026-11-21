@@ -21,6 +21,6 @@ Phase 1 — a local proof of concept behind one synchronous endpoint — is bein
 
 - [design/overall-design.md](./design/overall-design.md) — open questions first, then the goal, the phases and the pipeline
 - [design/flows/](./design/flows/README.md) — per-feature flow docs
-- [design/spikes/](./design/spikes/) — dated research records: how the measurement and imagery layers were chosen
+- [design/spike/](./design/spike/README.md) — spikes for open questions: how the measurement and imagery layers were chosen
 - [reviews/](./reviews/README.md) — the owner's code reviews, one file per PR
 - [AGENTS.md](./AGENTS.md) — the rules agents and people work by here
