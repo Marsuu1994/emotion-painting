@@ -23,7 +23,8 @@ src/emotion_painting/    # The package (src layout)
 tests/                   # pytest tests, one file per module
 design/                  # Design docs
 ├── overall-design.md    # The one project-wide design: open questions first, then goal, phases, pipeline
-└── flows/               # Per-feature flow docs
+├── flows/               # Per-feature flow docs
+└── spike/               # Spikes for open questions: options, trade-offs, the decision; archived/ = implemented
 reviews/                 # The owner's code reviews, one file per PR: each comment, its kind and its outcome — README for people, rules in its AGENTS.md
 scripts/                 # Repo checks run in CI
 ```
@@ -47,6 +48,7 @@ A rule that only one kind of file needs lives with that file. Read it before you
 | --- | --- |
 | a flow doc (`design/flows/`) | `design/flows/README.md` |
 | `design/overall-design.md` | the paragraph at its top |
+| a spike (`design/spike/`) | `design/spike/README.md` |
 | `reviews/`, or addressing the owner's review on a PR | `reviews/AGENTS.md` |
 
 ### Adding a rule
